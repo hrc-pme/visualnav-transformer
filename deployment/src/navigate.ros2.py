@@ -1,19 +1,17 @@
 import argparse
 import os
 import time
-from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
-# ROS
-import rospy
+import rclpy
 import torch
-import torch.nn as nn
 import yaml
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from PIL import Image as PILImage
+from rclpy.node import Node
+# ROS
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float32MultiArray
+from std_msgs.msg import Float32MultiArray
 # UTILS
 from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC
 from utils import load_model, msg_to_pil, to_numpy, transform_images
@@ -33,7 +31,6 @@ RATE = robot_config["frame_rate"]
 # GLOBALS
 context_queue = []
 context_size = None
-subgoal = []
 
 # Load the model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -48,6 +45,14 @@ def callback_obs(msg):
         else:
             context_queue.pop(0)
             context_queue.append(obs_img)
+
+
+class NavigationNode(Node):
+    def __init__(self):
+        super().__init__("navigation_node")
+        self.create_subscription(Image, IMAGE_TOPIC, callback_obs, 1)
+        self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, 1)
+        self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, 1)
 
 
 def main(args: argparse.Namespace):
@@ -77,8 +82,20 @@ def main(args: argparse.Namespace):
     model = model.to(device)
     model.eval()
 
+    if model_params["model_type"] == "nomad":
+        num_diffusion_iters = model_params["num_diffusion_iters"]
+        noise_scheduler = DDPMScheduler(
+            num_train_timesteps=model_params["num_diffusion_iters"],
+            beta_schedule="squaredcos_cap_v2",
+            clip_sample=True,
+            prediction_type="epsilon",
+        )
+
     # load topomap
-    topomap_filenames = sorted(os.listdir(os.path.join(TOPOMAP_IMAGES_DIR, args.dir)), key=lambda x: int(x.split(".")[0]))
+    topomap_filenames = sorted(
+        os.listdir(os.path.join(TOPOMAP_IMAGES_DIR, args.dir)),
+        key=lambda x: int(x.split(".")[0]),
+    )
     topomap_dir = f"{TOPOMAP_IMAGES_DIR}/{args.dir}"
     num_nodes = len(os.listdir(topomap_dir))
     topomap = []
@@ -95,24 +112,13 @@ def main(args: argparse.Namespace):
     reached_goal = False
 
     # ROS
-    rospy.init_node("EXPLORATION", anonymous=False)
-    rate = rospy.Rate(RATE)
-    image_curr_msg = rospy.Subscriber(IMAGE_TOPIC, Image, callback_obs, queue_size=1)
-    waypoint_pub = rospy.Publisher(WAYPOINT_TOPIC, Float32MultiArray, queue_size=1)
-    sampled_actions_pub = rospy.Publisher(SAMPLED_ACTIONS_TOPIC, Float32MultiArray, queue_size=1)
-    goal_pub = rospy.Publisher("/topoplan/reached_goal", Bool, queue_size=1)
+    rclpy.init()
+    node = NavigationNode()
 
-    print("Registered with master node. Waiting for image observations...")
-
-    if model_params["model_type"] == "nomad":
-        num_diffusion_iters = model_params["num_diffusion_iters"]
-        noise_scheduler = DDPMScheduler(
-            num_train_timesteps=model_params["num_diffusion_iters"], beta_schedule="squaredcos_cap_v2", clip_sample=True, prediction_type="epsilon"
-        )
-    # navigation loop
-    while not rospy.is_shutdown():
-        # EXPLORATION MODE
+    while rclpy.ok():
+        loop_start_time = time.time()
         chosen_waypoint = np.zeros(4)
+        waypoint_msg = Float32MultiArray()
         if len(context_queue) > model_params["context_size"]:
             if model_params["model_type"] == "nomad":
                 obs_images = transform_images(context_queue, model_params["image_size"], center_crop=False)
@@ -136,8 +142,11 @@ def main(args: argparse.Namespace):
                 dists = to_numpy(dists.flatten())
                 min_idx = np.argmin(dists)
                 closest_node = min_idx + start
-                print("closest node:", closest_node)
-                sg_idx = min(min_idx + int(dists[min_idx] < args.close_threshold), len(obsgoal_cond) - 1)
+                print(f"closest node: {closest_node}, distance: {dists[min_idx]}")
+                sg_idx = min(
+                    min_idx + int(dists[min_idx] < args.close_threshold),
+                    len(obsgoal_cond) - 1,
+                )
                 obs_cond = obsgoal_cond[sg_idx].unsqueeze(0)
 
                 # infer action
@@ -149,7 +158,10 @@ def main(args: argparse.Namespace):
                         obs_cond = obs_cond.repeat(args.num_samples, 1, 1)
 
                     # initialize action from Gaussian noise
-                    noisy_action = torch.randn((args.num_samples, model_params["len_traj_pred"], 2), device=device)
+                    noisy_action = torch.randn(
+                        (args.num_samples, model_params["len_traj_pred"], 2),
+                        device=device,
+                    )
                     naction = noisy_action
 
                     # init scheduler
@@ -158,16 +170,21 @@ def main(args: argparse.Namespace):
                     start_time = time.time()
                     for k in noise_scheduler.timesteps[:]:
                         # predict noise
-                        noise_pred = model("noise_pred_net", sample=naction, timestep=k, global_cond=obs_cond)
+                        noise_pred = model(
+                            "noise_pred_net",
+                            sample=naction,
+                            timestep=k,
+                            global_cond=obs_cond,
+                        )
                         # inverse diffusion step (remove noise)
                         naction = noise_scheduler.step(model_output=noise_pred, timestep=k, sample=naction).prev_sample
                     print("time elapsed:", time.time() - start_time)
 
                 naction = to_numpy(get_action(naction))
                 sampled_actions_msg = Float32MultiArray()
-                sampled_actions_msg.data = np.concatenate((np.array([0]), naction.flatten()))
+                sampled_actions_msg.data = np.concatenate((np.array([0]), naction.flatten())).tolist()
                 print("published sampled actions")
-                sampled_actions_pub.publish(sampled_actions_msg)
+                node.sampled_actions_pub.publish(sampled_actions_msg)
                 naction = naction[0]
                 chosen_waypoint = naction[args.waypoint]
             else:
@@ -188,28 +205,38 @@ def main(args: argparse.Namespace):
                 batch_goal_data = torch.cat(batch_goal_data, dim=0).to(device)
 
                 distances, waypoints = model(batch_obs_imgs, batch_goal_data)
+                print(f"distances: {distances}, waypoints: {waypoints}")
                 distances = to_numpy(distances)
                 waypoints = to_numpy(waypoints)
                 # look for closest node
                 min_dist_idx = np.argmin(distances)
                 # chose subgoal and output waypoints
                 if distances[min_dist_idx] > args.close_threshold:
+                    print(f"Closest node: {start + min_dist_idx}, distance: {distances[min_dist_idx]}")
                     chosen_waypoint = waypoints[min_dist_idx][args.waypoint]
                     closest_node = start + min_dist_idx
                 else:
                     chosen_waypoint = waypoints[min(min_dist_idx + 1, len(waypoints) - 1)][args.waypoint]
                     closest_node = min(start + min_dist_idx + 1, goal_node)
-        # RECOVERY MODE
+
         if model_params["normalize"]:
-            chosen_waypoint[:2] *= MAX_V / RATE
-        waypoint_msg = Float32MultiArray()
-        waypoint_msg.data = chosen_waypoint
-        waypoint_pub.publish(waypoint_msg)
+            chosen_waypoint *= MAX_V / RATE
+        waypoint_msg.data = chosen_waypoint.tolist()
+        node.waypoint_pub.publish(waypoint_msg)
+
         reached_goal = closest_node == goal_node
-        goal_pub.publish(reached_goal)
         if reached_goal:
             print("Reached goal! Stopping...")
-        rate.sleep()
+            break
+
+        elapsed_time = time.time() - loop_start_time
+        sleep_time = max(0, (1.0 / RATE) - elapsed_time)
+        time.sleep(sleep_time)
+
+        rclpy.spin_once(node, timeout_sec=0)
+
+    node.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == "__main__":
@@ -217,16 +244,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         "-m",
-        default="nomad",
+        default="gnm",
         type=str,
-        help="model name (only nomad is supported) (hint: check ../config/models.yaml) (default: nomad)",
+        help="model name (only nomad is supported) (hint: check config/models.yaml) (default: nomad)",
     )
     parser.add_argument(
         "--waypoint",
         "-w",
         default=2,  # close waypoints exihibit straight line motion (the middle waypoint is a good default)
         type=int,
-        help=f"""index of the waypoint used for navigation (between 0 and 4 or 
+        help=f"""index of the waypoint used for navigation (between 0 and 4 or
         how many waypoints your model predicts) (default: 2)""",
     )
     parser.add_argument(
@@ -241,7 +268,7 @@ if __name__ == "__main__":
         "-g",
         default=-1,
         type=int,
-        help="""goal node index in the topomap (if -1, then the goal node is 
+        help="""goal node index in the topomap (if -1, then the goal node is
         the last node in the topomap) (default: -1)""",
     )
     parser.add_argument(
@@ -249,7 +276,7 @@ if __name__ == "__main__":
         "-t",
         default=3,
         type=int,
-        help="""temporal distance within the next node in the topomap before 
+        help="""temporal distance within the next node in the topomap before
         localizing to it (default: 3)""",
     )
     parser.add_argument(
