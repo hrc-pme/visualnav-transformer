@@ -1,31 +1,27 @@
-
+import io
 import os
 import sys
-import io
+from typing import Dict, List, Optional, Tuple
+
 import matplotlib.pyplot as plt
-
-# ROS
-from sensor_msgs.msg import Image
-
+import numpy as np
 # pytorch
 import torch
 import torch.nn as nn
-from torchvision import transforms
 import torchvision.transforms.functional as TF
-
-import numpy as np
+from diffusion_policy.model.diffusion.conditional_unet1d import \
+    ConditionalUnet1D
 from PIL import Image as PILImage
-from typing import List, Tuple, Dict, Optional
-
+# ROS
+from sensor_msgs.msg import Image
+from torchvision import transforms
+from vint_train.data.data_utils import IMAGE_ASPECT_RATIO
 # models
 from vint_train.models.gnm.gnm import GNM
-from vint_train.models.vint.vint import ViNT
-
-from vint_train.models.vint.vit import ViT
-from vint_train.models.nomad.nomad import NoMaD, DenseNetwork
+from vint_train.models.nomad.nomad import DenseNetwork, NoMaD
 from vint_train.models.nomad.nomad_vint import NoMaD_ViNT, replace_bn_with_gn
-from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
-from vint_train.data.data_utils import IMAGE_ASPECT_RATIO
+from vint_train.models.vint.vint import ViNT
+from vint_train.models.vint.vit import ViT
 
 
 def load_model(
@@ -35,7 +31,7 @@ def load_model(
 ) -> nn.Module:
     """Load a model from a checkpoint file (works with models trained on multiple GPUs)"""
     model_type = config["model_type"]
-    
+
     if model_type == "gnm":
         model = GNM(
             config["context_size"],
@@ -66,7 +62,7 @@ def load_model(
                 mha_ff_dim_factor=config["mha_ff_dim_factor"],
             )
             vision_encoder = replace_bn_with_gn(vision_encoder)
-        elif config["vision_encoder"] == "vit": 
+        elif config["vision_encoder"] == "vit":
             vision_encoder = ViT(
                 obs_encoding_size=config["encoding_size"],
                 context_size=config["context_size"],
@@ -76,17 +72,17 @@ def load_model(
                 mha_num_attention_layers=config["mha_num_attention_layers"],
             )
             vision_encoder = replace_bn_with_gn(vision_encoder)
-        else: 
+        else:
             raise ValueError(f"Vision encoder {config['vision_encoder']} not supported")
-        
+
         noise_pred_net = ConditionalUnet1D(
-                input_dim=2,
-                global_cond_dim=config["encoding_size"],
-                down_dims=config["down_dims"],
-                cond_predict_scale=config["cond_predict_scale"],
-            )
+            input_dim=2,
+            global_cond_dim=config["encoding_size"],
+            down_dims=config["down_dims"],
+            cond_predict_scale=config["cond_predict_scale"],
+        )
         dist_pred_network = DenseNetwork(embedding_dim=config["encoding_size"])
-        
+
         model = NoMaD(
             vision_encoder=vision_encoder,
             noise_pred_net=noise_pred_net,
@@ -94,7 +90,7 @@ def load_model(
         )
     else:
         raise ValueError(f"Invalid model type: {model_type}")
-    
+
     checkpoint = torch.load(model_path, map_location=device)
     if model_type == "nomad":
         state_dict = checkpoint
@@ -112,17 +108,16 @@ def load_model(
 
 
 def msg_to_pil(msg: Image) -> PILImage.Image:
-    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-        msg.height, msg.width, -1)
+    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
     pil_image = PILImage.fromarray(img)
     return pil_image
 
 
 def pil_to_msg(pil_img: PILImage.Image, encoding="mono8") -> Image:
-    img = np.asarray(pil_img)  
+    img = np.asarray(pil_img)
     ros_image = Image(encoding=encoding)
     ros_image.height, ros_image.width, _ = img.shape
-    ros_image.data = img.ravel().tobytes() 
+    ros_image.data = img.ravel().tobytes()
     ros_image.step = ros_image.width
     return ros_image
 
@@ -136,8 +131,7 @@ def transform_images(pil_imgs: List[PILImage.Image], image_size: List[int], cent
     transform_type = transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[
-                                    0.229, 0.224, 0.225]),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
     if type(pil_imgs) != list:
@@ -150,12 +144,12 @@ def transform_images(pil_imgs: List[PILImage.Image], image_size: List[int], cent
                 pil_img = TF.center_crop(pil_img, (h, int(h * IMAGE_ASPECT_RATIO)))  # crop to the right ratio
             else:
                 pil_img = TF.center_crop(pil_img, (int(w / IMAGE_ASPECT_RATIO), w))
-        pil_img = pil_img.resize(image_size) 
+        pil_img = pil_img.resize(image_size)
         transf_img = transform_type(pil_img)
         transf_img = torch.unsqueeze(transf_img, 0)
         transf_imgs.append(transf_img)
     return torch.cat(transf_imgs, dim=1)
-    
+
 
 # clip angle between -pi and pi
 def clip_angle(angle):

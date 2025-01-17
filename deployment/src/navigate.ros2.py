@@ -38,7 +38,7 @@ print("Using device:", device)
 
 
 def callback_obs(msg):
-    obs_img = msg_to_pil(msg)
+    obs_img = msg_to_pil(msg).rotate(90, expand=True)
     if context_size is not None:
         if len(context_queue) < context_size + 1:
             context_queue.append(obs_img)
@@ -142,7 +142,7 @@ def main(args: argparse.Namespace):
                 dists = to_numpy(dists.flatten())
                 min_idx = np.argmin(dists)
                 closest_node = min_idx + start
-                print(f"closest node: {closest_node}, distance: {dists[min_idx]}")
+                # print(f"closest node: {closest_node}, distance: {dists[min_idx]}")
                 sg_idx = min(
                     min_idx + int(dists[min_idx] < args.close_threshold),
                     len(obsgoal_cond) - 1,
@@ -205,14 +205,13 @@ def main(args: argparse.Namespace):
                 batch_goal_data = torch.cat(batch_goal_data, dim=0).to(device)
 
                 distances, waypoints = model(batch_obs_imgs, batch_goal_data)
-                print(f"distances: {distances}, waypoints: {waypoints}")
                 distances = to_numpy(distances)
                 waypoints = to_numpy(waypoints)
+
                 # look for closest node
                 min_dist_idx = np.argmin(distances)
                 # chose subgoal and output waypoints
                 if distances[min_dist_idx] > args.close_threshold:
-                    print(f"Closest node: {start + min_dist_idx}, distance: {distances[min_dist_idx]}")
                     chosen_waypoint = waypoints[min_dist_idx][args.waypoint]
                     closest_node = start + min_dist_idx
                 else:
@@ -222,6 +221,8 @@ def main(args: argparse.Namespace):
         if model_params["normalize"]:
             chosen_waypoint *= MAX_V / RATE
         waypoint_msg.data = chosen_waypoint.tolist()
+        print(f"closest node: {closest_node}")
+        print(f"published waypoint: {waypoint_msg.data}")
         node.waypoint_pub.publish(waypoint_msg)
 
         reached_goal = closest_node == goal_node
