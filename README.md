@@ -8,6 +8,43 @@ _Berkeley AI Research_
 
 ---
 
+## TD;LR
+
+### Run GNM/ViNT Navigation
+
+
+```bash
+cd deployment/src/
+```
+
+### First run only
+
+This command will overwrite the existing topomap directory.
+
+```bash
+python3 create_topomap.py --dt <0.5>
+```
+
+### Run the navigation model
+
+```
+python3 navigate.ros2.py --model <gnm/vint>
+```
+
+### Publish Goals
+
+```bash
+python3 waypoint_to_goal_pose.py
+```
+
+### Also don't need to launch navigation stack
+
+```bash
+ros2 launch stretch_launch navigation.launch.py map:=maps/631.yaml use_navigation:=True
+```
+
+---
+
 General Navigation Models are general-purpose goal-conditioned visual navigation policies trained on diverse, cross-embodiment training data, and can control many different robots in zero-shot. They can also be efficiently fine-tuned, or adapted, to new robots and downstream tasks. Our family of models is described in the following research papers (and growing):
 1. [GNM: A General Navigation Model to Drive Any Robot](https://sites.google.com/view/drive-any-robot) (_October 2022_, presented at ICRA 2023)
 2. [ViNT: A Foundation Model for Visual Navigation](https://general-navigation-models.github.io/vint/index.html) (_June 2023_, presented at CoRL 2023)
