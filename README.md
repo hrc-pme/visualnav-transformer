@@ -12,6 +12,11 @@ _Berkeley AI Research_
 
 ### Run GNM/ViNT Navigation
 
+### Install local project
+
+```bash
+./install.sh
+```
 
 ```bash
 cd deployment/src/
