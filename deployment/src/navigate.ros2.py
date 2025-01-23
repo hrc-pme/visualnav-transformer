@@ -9,10 +9,9 @@ import yaml
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from PIL import Image as PILImage
 from rclpy.node import Node
-# ROS
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float32MultiArray
-# UTILS
+from std_msgs.msg import Bool, Float32MultiArray
 from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC
 from utils import load_model, msg_to_pil, to_numpy, transform_images
 from vint_train.training.train_utils import get_action
@@ -38,6 +37,7 @@ print("Using device:", device)
 
 
 def callback_obs(msg):
+    print("\nreceived image\n")
     obs_img = msg_to_pil(msg).rotate(90, expand=True)
     if context_size is not None:
         if len(context_queue) < context_size + 1:
@@ -50,9 +50,12 @@ def callback_obs(msg):
 class NavigationNode(Node):
     def __init__(self):
         super().__init__("navigation_node")
-        self.create_subscription(Image, IMAGE_TOPIC, callback_obs, 1)
-        self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, 1)
-        self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, 1)
+        print(f"Subscribing to {IMAGE_TOPIC}")
+        self.create_subscription(Image, IMAGE_TOPIC, callback_obs, qos_profile_sensor_data)
+        qos = QoSProfile(depth=10)
+        self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, qos)
+        self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos)
+        self.reach_goal_pub = self.create_publisher(Bool, "/reach_goal", qos)
 
 
 def main(args: argparse.Namespace):
@@ -226,6 +229,7 @@ def main(args: argparse.Namespace):
         node.waypoint_pub.publish(waypoint_msg)
 
         reached_goal = closest_node == goal_node
+        node.reach_goal_pub.publish(reached_goal)
         if reached_goal:
             print("Reached goal! Stopping...")
             break
