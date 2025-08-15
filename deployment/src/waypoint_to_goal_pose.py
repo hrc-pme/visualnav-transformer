@@ -27,27 +27,24 @@ class Waypoint2Goal(Node):
     def __init__(self):
         super().__init__("waypoint2goal")
 
-        # Parameters
-        # Publisher and Subscribers
         qos = QoSProfile(depth=10)
-        self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose2", qos)
+        self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", qos)
+        self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 新增速度指令發佈器
         self.create_subscription(Float32MultiArray, "waypoint", self.callback_drive, qos)
         self.create_subscription(Bool, "reached_goal", self.callback_reached_goal, qos)
-        # Variables
-        self.vel_msg = Twist()
+
         self.waypoint = None
         self.reached_goal = False
 
-        # Timer
         self.create_timer(1.0 / RATE, self.control_loop)
 
         self.get_logger().info("Waypoint2Goal node has been initialized.")
 
-    def convert_waypoint_pose(self, waypoint: np.ndarray) -> Tuple[float, float]:
-        """PD controller for the robot"""
-        assert len(waypoint) in [2, 4], "waypoint must be a 2D or 4D vector"
+    def convert_waypoint_pose(self, waypoint: np.ndarray) -> PoseStamped:
+        assert len(waypoint) in [2, 4], "waypoint must be 2D or 4D"
         if len(waypoint) == 2:
             dx, dy = waypoint
+            hx, hy = 1.0, 0.0  # 預設朝向X軸
         else:
             dx, dy, hx, hy = waypoint
 
@@ -66,27 +63,48 @@ class Waypoint2Goal(Node):
         return goal_pose
 
     def callback_drive(self, waypoint_msg: Float32MultiArray):
-        """Callback function for the waypoint subscriber"""
         self.get_logger().info("Waypoint received.")
         self.waypoint = np.array(waypoint_msg.data)
 
     def callback_reached_goal(self, reached_goal_msg: Bool):
-        """Callback function for the reached goal subscriber"""
         self.reached_goal = reached_goal_msg.data
         if self.reached_goal:
             self.get_logger().info("Goal reached! Stopping robot.")
 
     def control_loop(self):
-        """Main control loop"""
         if self.reached_goal:
-            pose = PoseStamped()
-            pose.header.frame_id = "base_link"
-            self.goal_pub.publish(pose)
+            # 目標達成，發布停止訊號
+            twist = Twist()
+            twist.linear.x = float(linear_vel)
+            twist.angular.z = float(angular_vel)
             return
 
         if self.waypoint is not None:
-            self.goal_pub.publish(self.convert_waypoint_pose(self.waypoint))
+            # 發佈目標位姿
+            goal_pose = self.convert_waypoint_pose(self.waypoint)
+            self.goal_pub.publish(goal_pose)
             self.get_logger().info(f"Publishing goal: {self.waypoint}")
+
+            # 計算速度指令（簡單比例控制器）
+            x, y = self.waypoint[0], self.waypoint[1]
+            distance = np.linalg.norm([x, y])
+            target_angle = np.arctan2(y, x)
+
+            # 線速度控制增益
+            k_v = 0.5
+            linear_vel = min(k_v * distance, MAX_V)
+
+            # 角速度控制增益
+            k_w = 1.0
+            angular_vel = np.clip(k_w * target_angle, -MAX_W, MAX_W)
+
+            twist = Twist()
+            twist.linear.x = float(linear_vel)
+            twist.angular.z = float(angular_vel)
+
+            self.vel_pub.publish(twist)
+            self.get_logger().info(f"Publishing velocity: linear={linear_vel:.2f}, angular={angular_vel:.2f}")
+
         else:
             self.get_logger().warn("No valid waypoint received.")
 

@@ -2,31 +2,44 @@ import argparse
 import os
 import shutil
 import time
+import pickle
 
 # ROS 2
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from nav_msgs.msg import Odometry
 from utils import msg_to_pil
 
-# IMAGE_TOPIC = "/navigation_camera/image_raw"
+from tf_transformations import euler_from_quaternion
+
 IMAGE_TOPIC = "/camera/camera/color/image_raw"
-TOPOMAP_IMAGES_DIR = "../topomap"
+ODOM_TOPIC = "/odom"
+TOPOMAP_IMAGES_DIR = "../topomaps"
 
 
 class TopomapNode(Node):
-    def __init__(self, image_topic, output_dir, dt):
+    def __init__(self, image_topic, odom_topic, output_dir, dt):
         super().__init__("create_topomap")
         self.image_topic = image_topic
+        self.odom_topic = odom_topic
         self.output_dir = output_dir
         self.dt = dt
         self.obs_img = None
-        self.subscriber = self.create_subscription(
-            Image, self.image_topic, self.callback_obs, 10
+        self.last_odom = None
+        self.traj_data = []
+
+        self.sub_image = self.create_subscription(
+            Image, self.image_topic, self.callback_image, 10
         )
-        self.get_logger().info(f"Subscribed to {self.image_topic}")
+        self.sub_odom = self.create_subscription(
+            Odometry, self.odom_topic, self.callback_odom, 10
+        )
+
+        self.get_logger().info(f"Subscribed to {self.image_topic} and {self.odom_topic}")
         self.remove_files_in_dir(self.output_dir)
-        self.get_logger().info(f"Saving images to {self.output_dir}")
+        self.get_logger().info(f"Saving data to {self.output_dir}")
+
         self.timer = self.create_timer(self.dt, self.timer_callback)
         self.image_counter = 0
         self.start_time = float("inf")
@@ -45,49 +58,71 @@ class TopomapNode(Node):
                 except Exception as e:
                     self.get_logger().error(f"Failed to delete {file_path}. Reason: {e}")
 
-    def callback_obs(self, msg: Image):
-        self.obs_img = msg_to_pil(msg).rotate(90, expand=True)
+    def callback_image(self, msg: Image):
+        self.obs_img = msg_to_pil(msg).rotate(270, expand=True)
+
+    def callback_odom(self, msg: Odometry):
+        pos = msg.pose.pose.position
+        ori = msg.pose.pose.orientation
+        quat = [ori.x, ori.y, ori.z, ori.w]
+        _, _, yaw = euler_from_quaternion(quat)
+        self.last_odom = {
+            "x": pos.x,
+            "y": pos.y,
+            "z": pos.z,
+            "yaw": yaw
+        }
 
     def timer_callback(self):
-        if self.obs_img is not None:
+        if self.obs_img is not None and self.last_odom is not None:
             img_path = os.path.join(self.output_dir, f"{self.image_counter}.png")
             self.obs_img.save(img_path)
+            self.traj_data.append(self.last_odom)
             self.get_logger().info(f"Saved image {self.image_counter} to {img_path}")
             self.image_counter += 1
             self.start_time = time.time()
             self.obs_img = None
+
         elif time.time() - self.start_time > 2 * self.dt:
-            self.get_logger().warn(f"Topic {self.image_topic} not publishing. Shutting down...")
+            self.get_logger().warn("No image received. Shutting down...")
+            self.save_traj_data()
             rclpy.shutdown()
+
+    def save_traj_data(self):
+        output_pkl = os.path.join(self.output_dir, "traj_data.pkl")
+        with open(output_pkl, "wb") as f:
+            pickle.dump(self.traj_data, f)
+        self.get_logger().info(f"Saved odometry data to {output_pkl}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"Code to generate topomaps from the {IMAGE_TOPIC} topic"
+        description=f"Generate topomap images and odometry data from {IMAGE_TOPIC}"
     )
     parser.add_argument(
         "--dir",
         "-d",
         default="topomap",
         type=str,
-        help="Path to save topological map images in ../topomaps/images directory (default: topomap)",
+        help="Name of subdirectory in ../topomaps/images (e.g., 'run1')",
     )
     parser.add_argument(
         "--dt",
         "-t",
         default=0.1,
         type=float,
-        help=f"Time between images sampled from the {IMAGE_TOPIC} topic (default: 1.0 seconds)",
+        help="Sampling period (default: 0.1 seconds)",
     )
     args = parser.parse_args()
 
     rclpy.init()
     topomap_name_dir = os.path.join(TOPOMAP_IMAGES_DIR, args.dir)
-    node = TopomapNode(IMAGE_TOPIC, topomap_name_dir, args.dt)
+    node = TopomapNode(IMAGE_TOPIC, ODOM_TOPIC, topomap_name_dir, args.dt)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         node.get_logger().info("Keyboard interrupt. Shutting down...")
+        node.save_traj_data()
     finally:
         node.destroy_node()
         rclpy.shutdown()
