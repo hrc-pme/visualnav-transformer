@@ -1,54 +1,100 @@
-# Base image with L4T PyTorch
-FROM dustynv/l4t-pytorch:r36.4.0
+# Base image with ROS Humble
+FROM ros:humble-ros-base-jammy
 
-# Install dependencies for ROS
+# Set timezone and non-interactive mode
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Taipei
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Install dependencies for Python and PyTorch
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg2 \
     lsb-release \
+    git \
     software-properties-common \
     wget \
+    python3.10 \
+    python3.10-dev \
+    python3.10-venv \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Add ROS 2 Humble repository
-RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+# Set Python 3.10 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
 
-# Install ROS 2 Humble Desktop
+# Install PyTorch 2.6.0 with CUDA 12.4 support
+RUN pip3 install torch==2.6.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# Install additional ROS dependencies and cv_bridge
 RUN apt-get update && apt-get install -y \
-    ros-humble-desktop \
     python3-rosdep \
     python3-colcon-common-extensions \
+    ros-humble-cv-bridge \
+    ros-humble-geometry-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-std-msgs \
+    ros-humble-rclpy \
+    python3-cv-bridge \
     && rm -rf /var/lib/apt/lists/*
 
-# Initialize rosdep
-RUN rosdep init && rosdep update
+# Initialize rosdep (if not already done in base image)
+RUN if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then rosdep init; fi && rosdep update
+
+# Install development tools
+RUN apt-get update && apt-get install -y \
+    nano \
+    ros-humble-foxglove-bridge \
+    x11-apps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for the project
+RUN pip3 install \
+    "numpy<2" \
+    einops \
+    efficientnet_pytorch \
+    PyYAML \
+    Pillow \
+    prettytable \
+    matplotlib \
+    scipy \
+    diffusers \
+    opencv-python \
+    vit_pytorch \
+    wandb \
+    warmup_scheduler \
+    && pip3 install --upgrade pip
 
 # Set up ROS environment
 RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
-# Clone visualnav-transformer repository, run install script, and clean up
-RUN git clone https://github.com/hrc-pme/visualnav-transformer.git /tmp/visualnav-transformer \
-    && cd /tmp/visualnav-transformer \
-    && chmod +x install.sh \
-    && ./install.sh \
-    && pip3 install --no-cache-dir \
-        diffusers \
-        efficientnet_pytorch \
-        einops \
-        prettytable \
-        vit_pytorch \
-        wandb \
-        warmup_scheduler --index-url https://pypi.org/simple \
-    && cd / \
-    && rm -rf /tmp/visualnav-transformer
-
 # Set working directory
 WORKDIR /workspace
 
-# Source ROS setup in entrypoint
-RUN echo '#!/bin/bash\nsource /opt/ros/humble/setup.bash\nexec "$@"' > /entrypoint.sh \
-    && chmod +x /entrypoint.sh
+# Copy diffusion_policy and train packages directly to final destination
+COPY workspace/diffusion_policy ./diffusion_policy
+COPY workspace/train ./train
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Create missing __init__.py files for all subdirectories to ensure proper Python package structure
+RUN find ./diffusion_policy -type d -exec touch {}/__init__.py \; && \
+    find ./train -type d -exec touch {}/__init__.py \;
+
+# Install packages from current location
+RUN pip install ./diffusion_policy && \
+    pip install ./train
+
+# Copy important data files that setuptools might miss
+RUN mkdir -p /usr/local/lib/python3.10/dist-packages/vint_train/data && \
+    cp ./train/vint_train/data/data_config.yaml /usr/local/lib/python3.10/dist-packages/vint_train/data/ && \
+    cp ./train/vint_train/data/data_utils.py /usr/local/lib/python3.10/dist-packages/vint_train/data/ && \
+    cp ./train/vint_train/data/vint_dataset.py /usr/local/lib/python3.10/dist-packages/vint_train/data/
+
+# Clean up copied directories
+RUN rm -rf ./diffusion_policy ./train
+
+# Source ROS setup in bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
 CMD ["/bin/bash"]

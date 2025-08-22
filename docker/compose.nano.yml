@@ -4,7 +4,7 @@
 x-common-settings: &common
   build:
     context: .
-    dockerfile: dockerfile.gpu
+    dockerfile: dockerfile.nano
   image: hrcnthu/visualnav:l4t-torch-36.4.0
 
   volumes:

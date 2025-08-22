@@ -3,49 +3,46 @@
 #############################
 x-common-settings: &common
   build:
-    context: .
-    dockerfile: dockerfile.gpu
-  image: hrcnthu/visualnav:l4t-torch-36.4.0
+    context: ..
+    dockerfile: docker/dockerfile.gpu
+  image: hrcnthu/visualnav:gpu-torch-cuda12.4
 
   volumes:
     # GUI support for ROS applications
     - $HOME/.Xauthority:/root/.Xauthority
     - /tmp/.X11-unix:/tmp/.X11-unix
-
-    # ROS2 and system access
-    - /dev:/dev
-    - /sys:/sys:ro
-    - /proc:/proc:ro
     
     # Workspace volume
-    - ../visualnav-transformer:/workspace
+    - ../workspace:/workspace
 
   environment:
     - ROS_DOMAIN_ID=25
     - DISPLAY=${DISPLAY}
-    - QT_X11_NO_MITSHM=1
     - XAUTHORITY=/tmp/.docker.xauth
 
   # ROS2 communication settings
   network_mode: "host"
   ipc: host
-  pid: "host"
-  shm_size: '2gb'
   
   # Container settings
   tty: true
   stdin_open: true
   privileged: true
   stop_grace_period: 1s
-  restart: unless-stopped
   working_dir: /workspace
-
 
 ############################
 ###   GPU settings       ###
 ############################
 x-gpu-settings: &gpu
   runtime: nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
   
   environment:
     - NVIDIA_VISIBLE_DEVICES=all
@@ -60,7 +57,6 @@ services:
     <<: [*common, *gpu]
     container_name: visualnav-transformer
     command: ["/bin/bash"]
-
   dev:
     <<: [*common, *gpu]
     container_name: visualnav-dev

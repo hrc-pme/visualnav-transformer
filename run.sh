@@ -47,8 +47,6 @@ elif [ "$PLATFORM" = "gpu" ]; then
   COMPOSE_FILE="docker/compose.gpu.yml"
 fi
 
-# Set default command to bash
-COMMAND="/bin/bash"
 
 ## 1. clean container within same group
 echo "=== [VISUALNAV] Pull & Run ==="
@@ -56,7 +54,6 @@ echo "[VISUALNAV] Remove Containers ..."
 docker compose -p visualnav -f $COMPOSE_FILE down --volumes --remove-orphans
 
 ## 2. environment setup  
-export COMMAND 
 export DISPLAY=${DISPLAY:-:0}
 xhost +local:docker
 cd docker
@@ -65,6 +62,6 @@ cd docker
 echo "[VISUALNAV] Deploying $SERVICE service on $PLATFORM..."
 docker compose -p visualnav -f ../$COMPOSE_FILE up -d $SERVICE
 
-## 4. Execute the specified command in the container
-echo "[VISUALNAV] Executing command in $SERVICE: $COMMAND"
-docker compose -p visualnav -f ../$COMPOSE_FILE exec $SERVICE $COMMAND
+echo "[VISUALNAV] Entering container..."
+docker exec -it visualnav-$SERVICE bash
+

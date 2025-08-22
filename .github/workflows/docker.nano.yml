@@ -1,0 +1,46 @@
+name: VisualNav Transformer Nano Docker Image
+
+on:
+  push: 
+      branches: [ main ]
+      paths:
+      - docker/
+      - .github/workflows/docker.nano.yml
+
+jobs:
+  docker:
+      runs-on: ubuntu-latest
+      steps:
+      # Initialization
+      - name: Repo Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/arm64
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+            images: ${{ secrets.DOCKERHUB_USERNAME }}/visualnav
+            tags: l4t-torch-36.4.0
+
+      # Login Docker Hub
+      - name: Docker Hub Log-in
+        uses: docker/login-action@v3
+        with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      # Build and Push Docker image for ARM64 (Jetson Nano)
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .                 
+          file: docker/dockerfile.nano
+          platforms: linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          no-cache: true
