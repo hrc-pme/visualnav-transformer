@@ -2,19 +2,33 @@
 
 # Usage function
 usage() {
-  echo "usage: $0 [service]"
+  echo "usage: $0 [platform] [service]"
+  echo "platform:"
+  echo "- nano         Use docker/compose.nano.yml"
+  echo "- gpu          Use docker/compose.gpu.yml"
   echo "service:"
-  echo "- deploy        Production deployment service"
-  echo "- dev           Development service"
+  echo "- deploy       Production deployment service"
+  echo "- dev          Development service"
   exit 1
 }
 
-# Ensure service argument is provided
-if [ $# -ne 1 ]; then
+# Ensure platform and service arguments are provided
+if [ $# -ne 2 ]; then
   usage
 fi
 
-SERVICE=$1
+PLATFORM=$1
+SERVICE=$2
+
+# Validate platform argument
+case "$PLATFORM" in
+  nano|gpu)
+    ;;
+  *)
+    echo "Invalid platform: $PLATFORM"
+    usage
+    ;;
+esac
 
 # Validate service argument
 case "$SERVICE" in
@@ -26,16 +40,20 @@ case "$SERVICE" in
     ;;
 esac
 
+# Set compose file based on platform
+if [ "$PLATFORM" = "nano" ]; then
+  COMPOSE_FILE="docker/compose.nano.yml"
+elif [ "$PLATFORM" = "gpu" ]; then
+  COMPOSE_FILE="docker/compose.gpu.yml"
+fi
+
 # Set default command to bash
 COMMAND="/bin/bash"
 
-## 0. clean container within same group
+## 1. clean container within same group
 echo "=== [VISUALNAV] Pull & Run ==="
 echo "[VISUALNAV] Remove Containers ..."
-docker compose -p visualnav -f docker/compose.nano.yml down --volumes --remove-orphans
-
-## 1. make scripts & library executable
-# find . -type f -name "*.sh" -exec sudo chmod +x {} \;
+docker compose -p visualnav -f $COMPOSE_FILE down --volumes --remove-orphans
 
 ## 2. environment setup  
 export COMMAND 
@@ -43,14 +61,10 @@ export DISPLAY=${DISPLAY:-:0}
 xhost +local:docker
 cd docker
 
-## 3. build/pull image
-# echo "[VISUALNAV] Building/Pulling Images ..."
-# docker compose -f compose.nano.yml build || docker pull hrcnthu/visualnav:l4t-torch-36.4.0
+## 3. deployment
+echo "[VISUALNAV] Deploying $SERVICE service on $PLATFORM..."
+docker compose -p visualnav -f ../$COMPOSE_FILE up -d $SERVICE
 
-## 4. deployment
-echo "[VISUALNAV] Deploying $SERVICE service..."
-docker compose -p visualnav -f compose.nano.yml up -d $SERVICE
-
-## 5. Execute the specified command in the container
+## 4. Execute the specified command in the container
 echo "[VISUALNAV] Executing command in $SERVICE: $COMMAND"
-docker compose -p visualnav -f compose.nano.yml exec $SERVICE $COMMAND
+docker compose -p visualnav -f ../$COMPOSE_FILE exec $SERVICE $COMMAND
