@@ -2,7 +2,7 @@ name: VisualNav Transformer GPU Docker Image
 
 on:
   push: 
-      branches: [ main ]
+      branches: [ dev-pomelo925 ]
       paths:
       - docker/
       - .github/workflows/docker.gpu.yml

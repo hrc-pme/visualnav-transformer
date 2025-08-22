@@ -2,7 +2,7 @@ name: VisualNav Transformer Nano Docker Image
 
 on:
   push: 
-      branches: [ main ]
+      branches: [ dev-pomelo925 ]
       paths:
       - docker/
       - .github/workflows/docker.nano.yml
