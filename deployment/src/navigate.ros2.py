@@ -8,6 +8,7 @@ import torch
 import yaml
 from cv_bridge import CvBridge
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from geometry_msgs.msg import Twist
 from PIL import Image as PILImage
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
@@ -18,18 +19,19 @@ from utils import load_model, msg_to_pil, to_numpy, transform_images
 from vint_train.training.train_utils import get_action
 
 # CONSTANTS
-TOPOMAP_IMAGES_DIR = "/root/stretch3/visualnav-transformer/deployment"
+TOPOMAP_IMAGES_DIR = "/workspace/deployment"
 MODEL_WEIGHTS_PATH = "../model_weights"
 ROBOT_CONFIG_PATH = "../config/robot.yaml"
 MODEL_CONFIG_PATH = "../config/models.yaml"
-Z_RATIO = 0.3  # scale z (yaw) speed to half
-XY_RATIO = 0.3
+Z_RATIO = 0.5  # scale z (yaw) speed to half
+XY_RATIO = 0.5
 
 with open(ROBOT_CONFIG_PATH, "r") as f:
     robot_config = yaml.safe_load(f)
 MAX_V = robot_config["max_v"]
 MAX_W = robot_config["max_w"]
 RATE = robot_config["frame_rate"]
+VEL_TOPIC = robot_config["vel_navi_topic"]
 
 # GLOBALS
 context_queue = []
@@ -68,7 +70,20 @@ class NavigationNode(Node):
         self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos)
         self.image_pub = self.create_publisher(Image, "camera/image/visualnav", qos_profile_sensor_data)
         self.reach_goal_pub = self.create_publisher(Bool, "/reach_goal", qos)
+        self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 添加速度控制發布器
         self.bridge = CvBridge()
+        
+    def publish_zero_velocity(self):
+        """發布零速度指令以停止機器人"""
+        stop_cmd = Twist()
+        stop_cmd.linear.x = 0.0
+        stop_cmd.linear.y = 0.0
+        stop_cmd.linear.z = 0.0
+        stop_cmd.angular.x = 0.0
+        stop_cmd.angular.y = 0.0
+        stop_cmd.angular.z = 0.0
+        self.vel_pub.publish(stop_cmd)
+        self.get_logger().info("Published zero velocity command to stop robot")
 
 def main(args: argparse.Namespace):
     global context_size
@@ -119,6 +134,15 @@ def main(args: argparse.Namespace):
     while rclpy.ok():
         loop_start_time = time.time()
         chosen_waypoint = np.zeros(4)
+
+        # 如果已經到達目標，持續發布停止信號
+        if reached_goal:
+            node.publish_zero_velocity()
+            node.reach_goal_pub.publish(Bool(data=True))
+            print("[Navigation] Goal reached. Robot stopped.")
+            time.sleep(max(0, (1.0 / RATE) - (time.time() - loop_start_time)))
+            rclpy.spin_once(node, timeout_sec=0)
+            continue
 
         if len(context_queue) > model_params["context_size"]:
             start = max(closest_node - args.radius, 0)
@@ -192,14 +216,20 @@ def main(args: argparse.Namespace):
 
         waypoint_msg = Float32MultiArray(data=chosen_waypoint.tolist())
         node.waypoint_pub.publish(waypoint_msg)
-        node.reach_goal_pub.publish(Bool(data=bool(closest_node == goal_node)))
+        
+        # 檢查是否到達目標
+        goal_reached = bool(closest_node == goal_node)
+        node.reach_goal_pub.publish(Bool(data=goal_reached))
 
         waypoint_str = f"[{chosen_waypoint[0]:.2f} {chosen_waypoint[1]:.2f} {chosen_waypoint[2]:.2f}]"
         print(f"[Status] Node: {closest_node}/{goal_node} | Ref Node: {start} to {end} | Waypoint: {waypoint_str}")
 
-        if closest_node == goal_node:
-            print("[Navigation] Goal reached.")
-            break
+        if goal_reached:
+            print("[Navigation] Goal reached. Stopping robot...")
+            # 持續發送零速度指令停止機器人
+            node.publish_zero_velocity()
+            # 繼續循環以持續發布停止信號，而不是立即退出
+            reached_goal = True
 
         time.sleep(max(0, (1.0 / RATE) - (time.time() - loop_start_time)))
         rclpy.spin_once(node, timeout_sec=0)

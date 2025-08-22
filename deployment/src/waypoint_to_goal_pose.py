@@ -7,7 +7,7 @@ from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
 from rclpy.qos import QoSProfile
 from std_msgs.msg import Bool, Float32MultiArray
-from tf_transformations import quaternion_from_euler
+from scipy.spatial.transform import Rotation as R
 
 # Load Config
 CONFIG_PATH = "../config/robot.yaml"
@@ -31,7 +31,7 @@ class Waypoint2Goal(Node):
         self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", qos)
         self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 新增速度指令發佈器
         self.create_subscription(Float32MultiArray, "waypoint", self.callback_drive, qos)
-        self.create_subscription(Bool, "reached_goal", self.callback_reached_goal, qos)
+        self.create_subscription(Bool, "/reach_goal", self.callback_reached_goal, qos)  # 修正 topic 名稱
 
         self.waypoint = None
         self.reached_goal = False
@@ -54,11 +54,13 @@ class Waypoint2Goal(Node):
         goal_pose.pose.position.y = float(dy)
         goal_pose.pose.position.z = 0.0
 
-        orientation = quaternion_from_euler(0, 0, np.arctan2(hy, hx))
-        goal_pose.pose.orientation.x = orientation[0]
-        goal_pose.pose.orientation.y = orientation[1]
-        goal_pose.pose.orientation.z = orientation[2]
-        goal_pose.pose.orientation.w = orientation[3]
+        # 使用 scipy 計算四元數 (x, y, z, w 格式)
+        rotation = R.from_euler('z', np.arctan2(hy, hx))
+        quaternion = rotation.as_quat()  # 返回 [x, y, z, w] 格式
+        goal_pose.pose.orientation.x = quaternion[0]
+        goal_pose.pose.orientation.y = quaternion[1]
+        goal_pose.pose.orientation.z = quaternion[2]
+        goal_pose.pose.orientation.w = quaternion[3]
 
         return goal_pose
 
@@ -73,10 +75,17 @@ class Waypoint2Goal(Node):
 
     def control_loop(self):
         if self.reached_goal:
-            # 目標達成，發布停止訊號
+            # 目標達成，發布停止訊號並清除航點
             twist = Twist()
-            twist.linear.x = float(linear_vel)
-            twist.angular.z = float(angular_vel)
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
+            twist.linear.z = 0.0
+            twist.angular.x = 0.0
+            twist.angular.y = 0.0
+            twist.angular.z = 0.0
+            self.vel_pub.publish(twist)
+            self.waypoint = None  # 清除航點以避免繼續處理
+            self.get_logger().info("Robot stopped. Goal reached.")
             return
 
         if self.waypoint is not None:

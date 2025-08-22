@@ -1,0 +1,54 @@
+# Base image with L4T PyTorch
+FROM dustynv/l4t-pytorch:r36.4.0
+
+# Install dependencies for ROS
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg2 \
+    lsb-release \
+    software-properties-common \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add ROS 2 Humble repository
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+# Install ROS 2 Humble Desktop
+RUN apt-get update && apt-get install -y \
+    ros-humble-desktop \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# Initialize rosdep
+RUN rosdep init && rosdep update
+
+# Set up ROS environment
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+# Clone visualnav-transformer repository, run install script, and clean up
+RUN git clone https://github.com/hrc-pme/visualnav-transformer.git /tmp/visualnav-transformer \
+    && cd /tmp/visualnav-transformer \
+    && chmod +x install.sh \
+    && ./install.sh \
+    && pip3 install --no-cache-dir \
+        diffusers \
+        efficientnet_pytorch \
+        einops \
+        prettytable \
+        vit_pytorch \
+        wandb \
+        warmup_scheduler --index-url https://pypi.org/simple \
+    && cd / \
+    && rm -rf /tmp/visualnav-transformer
+
+# Set working directory
+WORKDIR /workspace
+
+# Source ROS setup in entrypoint
+RUN echo '#!/bin/bash\nsource /opt/ros/humble/setup.bash\nexec "$@"' > /entrypoint.sh \
+    && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/bin/bash"]
