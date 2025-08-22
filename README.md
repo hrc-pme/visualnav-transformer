@@ -8,7 +8,7 @@ _Berkeley AI Research_
 
 ---
 
-## TD;LR
+## TL;DR
 
 ### Run GNM/ViNT Navigation
 
