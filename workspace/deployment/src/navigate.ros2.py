@@ -19,7 +19,8 @@ from utils import load_model, msg_to_pil, to_numpy, transform_images
 from vint_train.training.train_utils import get_action
 
 # CONSTANTS
-TOPOMAP_IMAGES_DIR = "/workspace/deployment"
+TOPOMAP_IMAGES_DIR = "../topomaps"
+TOPOMAP_NAME = "6e6"
 MODEL_WEIGHTS_PATH = "../model_weights"
 ROBOT_CONFIG_PATH = "../config/robot.yaml"
 MODEL_CONFIG_PATH = "../config/models.yaml"
@@ -114,10 +115,10 @@ def main(args: argparse.Namespace):
         )
 
     topomap_filenames = sorted(
-        os.listdir(os.path.join(TOPOMAP_IMAGES_DIR, args.dir)),
+        os.listdir(os.path.join(TOPOMAP_IMAGES_DIR, TOPOMAP_NAME)),
         key=lambda x: int(x.split(".")[0]),
     )
-    topomap_dir = f"{TOPOMAP_IMAGES_DIR}/{args.dir}"
+    topomap_dir = f"{TOPOMAP_IMAGES_DIR}/{TOPOMAP_NAME}"
     topomap = [PILImage.open(os.path.join(topomap_dir, fname)) for fname in topomap_filenames]
     num_nodes = len(topomap)
     
@@ -254,13 +255,6 @@ if __name__ == "__main__":
         type=int,
         help=f"""index of the waypoint used for navigation (between 0 and 4 or
         how many waypoints your model predicts) (default: 2)""",
-    )
-    parser.add_argument(
-        "--dir",
-        "-d",
-        default="topomap",
-        type=str,
-        help="path to topomap images",
     )
     parser.add_argument(
         "--goal-node",
