@@ -11,7 +11,7 @@ from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
 from utils import msg_to_pil
 
-from tf_transformations import euler_from_quaternion
+from scipy.spatial.transform import Rotation as R
 
 IMAGE_TOPIC = "/camera/camera/color/image_raw"
 ODOM_TOPIC = "/odom"
@@ -67,7 +67,10 @@ class TopomapNode(Node):
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
         quat = [ori.x, ori.y, ori.z, ori.w]
-        _, _, yaw = euler_from_quaternion(quat)
+        # Convert quaternion to euler angles using scipy
+        rotation = R.from_quat(quat)
+        euler = rotation.as_euler('xyz', degrees=False)
+        yaw = euler[2]  # yaw is the rotation around z-axis
         self.last_odom = {
             "x": pos.x,
             "y": pos.y,
