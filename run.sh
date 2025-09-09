@@ -66,5 +66,5 @@ echo "[VISUALNAV] Deploying $SERVICE service on $PLATFORM..."
 docker compose -p visualnav -f ../$COMPOSE_FILE up -d $SERVICE
 
 echo "[VISUALNAV] Entering container..."
-docker exec -it visualnav-$SERVICE bash
+docker exec -it visualnav-$SERVICE-$PLATFORM bash
 
