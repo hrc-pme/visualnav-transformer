@@ -4,7 +4,7 @@
 x-common-settings: &common
   build:
     context: ..
-    dockerfile: docker/dockerfile.gpu
+    dockerfile: docker/dockerfile.gpu.cu124
   image: hrcnthu/visualnav:gpu-torch-cuda12.4
 
   volumes:

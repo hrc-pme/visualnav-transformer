@@ -1,11 +1,11 @@
-name: VisualNav Transformer CPU Docker Image
+name: VisualNav Transformer GPU Docker Image (CUDA 12.4)
 
 on:
   push: 
       branches: [ dev-pomelo925 ]
       paths:
-      - docker/dockerfile.cpu
-      - .github/workflows/docker.cpu.yml
+      - docker/dockerfile.gpu.cu124
+      - .github/workflows/docker.gpu.cu124.yml
 
 jobs:
   docker:
@@ -20,7 +20,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
             images: ${{ secrets.DOCKERHUB_USERNAME }}/visualnav
-            tags: cpu-torch
+            tags: gpu-torch-cuda12.4
 
       # Login Docker Hub
       - name: Docker Hub Log-in
@@ -34,7 +34,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .                 
-          file: docker/dockerfile.cpu
+          file: docker/dockerfile.gpu.cu124
           tags: ${{ steps.meta.outputs.tags }}
           push: true
           no-cache: true

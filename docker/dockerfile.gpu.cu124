@@ -25,8 +25,9 @@ RUN apt-get update && apt-get install -y \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
 
-# Install PyTorch 2.6.0 with CUDA 12.4 support
-RUN pip3 install torch==2.6.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+# Install PyTorch nightly build with CUDA 12.4 support (supports RTX 5090)
+# Using nightly build to get support for CUDA capability sm_120 (RTX 5090)
+RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
 
 # Install additional ROS dependencies and cv_bridge
 RUN apt-get update && apt-get install -y \
