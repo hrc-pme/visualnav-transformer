@@ -1,4 +1,4 @@
-name: VisualNav Transformer GPU Docker Image
+name: VisualNav Transformer CPU Docker Image
 
 on:
   push: 
