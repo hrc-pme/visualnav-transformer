@@ -5,7 +5,8 @@ usage() {
   echo "usage: $0 [platform] [service]"
   echo "platform:"
   echo "- nano         Use docker/compose.nano.yml"
-  echo "- gpu          Use docker/compose.gpu.yml"
+  echo "- gpu-cu124    Use docker/compose.gpu.cu124.yml (CUDA 12.4)"
+  echo "- gpu-cu129    Use docker/compose.gpu.cu129.yml (CUDA 12.9)"
   echo "- cpu          Use docker/compose.cpu.yml"
   echo "service:"
   echo "- deploy       Production deployment service"
@@ -23,7 +24,7 @@ SERVICE=$2
 
 # Validate platform argument
 case "$PLATFORM" in
-  nano|gpu|cpu)
+  nano|gpu-cu124|gpu-cu129|cpu)
     ;;
   *)
     echo "Invalid platform: $PLATFORM"
@@ -44,8 +45,10 @@ esac
 # Set compose file based on platform
 if [ "$PLATFORM" = "nano" ]; then
   COMPOSE_FILE="docker/compose.nano.yml"
-elif [ "$PLATFORM" = "gpu" ]; then
-  COMPOSE_FILE="docker/compose.gpu.yml"
+elif [ "$PLATFORM" = "gpu-cu124" ]; then
+  COMPOSE_FILE="docker/compose.gpu.cu124.yml"
+elif [ "$PLATFORM" = "gpu-cu129" ]; then
+  COMPOSE_FILE="docker/compose.gpu.cu129.yml"
 elif [ "$PLATFORM" = "cpu" ]; then
   COMPOSE_FILE="docker/compose.cpu.yml"
 fi
