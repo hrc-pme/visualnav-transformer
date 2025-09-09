@@ -1,6 +1,10 @@
 import argparse
 import os
+import sys
 import time
+import subprocess
+import urllib.request
+import shutil
 
 import numpy as np
 import rclpy
@@ -37,6 +41,74 @@ VEL_TOPIC = robot_config["vel_navi_topic"]
 # GLOBALS
 context_queue = []
 context_size = None
+
+# Model download URLs
+MODEL_URLS = {
+    "gnm": "https://drive.google.com/file/d/1bzCPd_OsXjS2aGPTQladbI8ImxLZwrQh/view?usp=drive_link",
+    "vint": "https://drive.google.com/file/d/1ckrceGb5m_uUtq3pD8KHwnqtJgPl6kF5/view?usp=drive_link", 
+    "nomad": "https://drive.google.com/file/d/1YJhkkMJAYOiKNyCaelbS_alpUpAJsOUb/view?usp=drive_link"
+}
+
+def extract_google_drive_id(url):
+    """從 Google Drive URL 提取檔案 ID"""
+    if "drive.google.com" in url:
+        if "/file/d/" in url:
+            return url.split("/file/d/")[1].split("/")[0]
+    return None
+
+def download_model_from_google_drive(file_id, destination):
+    """從 Google Drive 下載模型檔案"""
+    # 使用 gdown 下載 Google Drive 檔案
+    try:
+        import gdown
+        download_url = f"https://drive.google.com/uc?id={file_id}"
+        print(f"Downloading model to {destination}...")
+        gdown.download(download_url, destination, quiet=False)
+        return True
+    except ImportError:
+        print("gdown not found. Installing gdown...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
+            import gdown
+            download_url = f"https://drive.google.com/uc?id={file_id}"
+            print(f"Downloading model to {destination}...")
+            gdown.download(download_url, destination, quiet=False)
+            return True
+        except Exception as e:
+            print(f"Failed to install gdown or download file: {e}")
+            return False
+    except Exception as e:
+        print(f"Failed to download model: {e}")
+        return False
+
+def ensure_model_exists(model_name, model_path):
+    """檢查模型檔案是否存在，如果不存在則下載"""
+    if os.path.exists(model_path):
+        print(f"Model {model_name} already exists at {model_path}")
+        return True
+    
+    print(f"Model {model_name} not found at {model_path}")
+    
+    # 確保模型目錄存在
+    model_dir = os.path.dirname(model_path)
+    os.makedirs(model_dir, exist_ok=True)
+    
+    if model_name in MODEL_URLS:
+        file_id = extract_google_drive_id(MODEL_URLS[model_name])
+        if file_id:
+            print(f"Downloading {model_name} model...")
+            if download_model_from_google_drive(file_id, model_path):
+                print(f"Successfully downloaded {model_name} model")
+                return True
+            else:
+                print(f"Failed to download {model_name} model")
+                return False
+        else:
+            print(f"Invalid Google Drive URL for {model_name}")
+            return False
+    else:
+        print(f"No download URL configured for model: {model_name}")
+        return False
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
@@ -99,6 +171,11 @@ def main(args: argparse.Namespace):
     context_size = model_params["context_size"]
 
     ckpth_path = model_paths[args.model]["ckpt_path"]
+    
+    # 檢查並下載模型（如果需要）
+    if not ensure_model_exists(args.model, ckpth_path):
+        raise FileNotFoundError(f"Failed to download or locate model weights for {args.model} at {ckpth_path}")
+    
     if not os.path.exists(ckpth_path):
         raise FileNotFoundError(f"Model weights not found at {ckpth_path}")
     print(f"Loading model from {ckpth_path}")
