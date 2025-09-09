@@ -1,0 +1,100 @@
+# Base image with ROS Humble
+FROM ros:humble-ros-base-jammy
+
+# Set timezone and non-interactive mode
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Taipei
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Install dependencies for Python
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg2 \
+    lsb-release \
+    git \
+    software-properties-common \
+    wget \
+    python3.10 \
+    python3.10-dev \
+    python3.10-venv \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.10 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
+
+# Install CPU-only PyTorch 2.6.0
+RUN pip3 install torch==2.6.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install additional ROS dependencies and cv_bridge
+RUN apt-get update && apt-get install -y \
+    python3-rosdep \
+    python3-colcon-common-extensions \
+    ros-humble-cv-bridge \
+    ros-humble-geometry-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-std-msgs \
+    ros-humble-rclpy \
+    python3-cv-bridge \
+    && rm -rf /var/lib/apt/lists/*
+
+# Initialize rosdep (if not already done in base image)
+RUN if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then rosdep init; fi && rosdep update
+
+# Install development tools
+RUN apt-get update && apt-get install -y \
+    nano \
+    ros-humble-foxglove-bridge \
+    x11-apps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for the project
+RUN pip3 install \
+    "numpy<2" \
+    einops \
+    efficientnet_pytorch \
+    PyYAML \
+    Pillow \
+    prettytable \
+    matplotlib \
+    scipy \
+    diffusers \
+    opencv-python \
+    vit_pytorch \
+    wandb \
+    warmup_scheduler \
+    && pip3 install --upgrade pip
+
+# Set up ROS environment
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy diffusion_policy and train packages directly to final destination
+COPY workspace/diffusion_policy ./diffusion_policy
+COPY workspace/train ./train
+
+# Create missing __init__.py files for all subdirectories to ensure proper Python package structure
+RUN find ./diffusion_policy -type d -exec touch {}/__init__.py \; && \
+    find ./train -type d -exec touch {}/__init__.py \;
+
+# Install packages from current location
+RUN pip install ./diffusion_policy && \
+    pip install ./train
+
+# Copy important data files that setuptools might miss
+RUN mkdir -p /usr/local/lib/python3.10/dist-packages/vint_train/data && \
+    cp ./train/vint_train/data/data_config.yaml /usr/local/lib/python3.10/dist-packages/vint_train/data/ && \
+    cp ./train/vint_train/data/data_utils.py /usr/local/lib/python3.10/dist-packages/vint_train/data/ && \
+    cp ./train/vint_train/data/vint_dataset.py /usr/local/lib/python3.10/dist-packages/vint_train/data/
+
+# Clean up copied directories
+RUN rm -rf ./diffusion_policy ./train
+
+# Source ROS setup in bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+CMD ["/bin/bash"]

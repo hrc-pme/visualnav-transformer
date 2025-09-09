@@ -6,6 +6,7 @@ usage() {
   echo "platform:"
   echo "- nano         Use docker/compose.nano.yml"
   echo "- gpu          Use docker/compose.gpu.yml"
+  echo "- cpu          Use docker/compose.cpu.yml"
   echo "service:"
   echo "- deploy       Production deployment service"
   echo "- dev          Development service"
@@ -22,7 +23,7 @@ SERVICE=$2
 
 # Validate platform argument
 case "$PLATFORM" in
-  nano|gpu)
+  nano|gpu|cpu)
     ;;
   *)
     echo "Invalid platform: $PLATFORM"
@@ -45,6 +46,8 @@ if [ "$PLATFORM" = "nano" ]; then
   COMPOSE_FILE="docker/compose.nano.yml"
 elif [ "$PLATFORM" = "gpu" ]; then
   COMPOSE_FILE="docker/compose.gpu.yml"
+elif [ "$PLATFORM" = "cpu" ]; then
+  COMPOSE_FILE="docker/compose.cpu.yml"
 fi
 
 

@@ -4,7 +4,7 @@ on:
   push: 
       branches: [ dev-pomelo925 ]
       paths:
-      - docker/
+      - docker/dockerfile.gpu
       - .github/workflows/docker.gpu.yml
 
 jobs:

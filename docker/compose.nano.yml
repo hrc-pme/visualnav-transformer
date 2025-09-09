@@ -58,10 +58,10 @@ x-gpu-settings: &gpu
 services:
   deploy:
     <<: [*common, *gpu]
-    container_name: visualnav-transformer
+    container_name: visualnav-deploy-nano
     command: ["/bin/bash"]
 
   dev:
     <<: [*common, *gpu]
-    container_name: visualnav-dev
+    container_name: visualnav-dev-nano
     command: ["/bin/bash"]
