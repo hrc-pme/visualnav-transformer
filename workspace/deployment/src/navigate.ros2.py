@@ -24,12 +24,14 @@ from vint_train.training.train_utils import get_action
 
 # CONSTANTS
 TOPOMAP_IMAGES_DIR = "../topomaps"
-TOPOMAP_NAME = "6e6"
+TOPOMAP_NAME = "6e-elevator"
 MODEL_WEIGHTS_PATH = "../model_weights"
 ROBOT_CONFIG_PATH = "../config/robot.yaml"
 MODEL_CONFIG_PATH = "../config/models.yaml"
-Z_RATIO = 0.5  # scale z (yaw) speed to half
-XY_RATIO = 0.5
+MODEL = "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)
+NODE_RANGE = [0, 167]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
+Z_RATIO = 1  # scale z (yaw) speed to half
+XY_RATIO = 1
 
 with open(ROBOT_CONFIG_PATH, "r") as f:
     robot_config = yaml.safe_load(f)
@@ -161,8 +163,15 @@ class NavigationNode(Node):
 def main(args: argparse.Namespace):
     global context_size
 
+    print(f"🤖 Selected model: {args.model}")
+    
     with open(MODEL_CONFIG_PATH, "r") as f:
         model_paths = yaml.safe_load(f)
+
+    print(f"📋 Available models: {list(model_paths.keys())}")
+    
+    if args.model not in model_paths:
+        raise ValueError(f"Model '{args.model}' not found in {MODEL_CONFIG_PATH}. Available models: {list(model_paths.keys())}")
 
     model_config_path = model_paths[args.model]["config_path"]
     with open(model_config_path, "r") as f:
@@ -199,13 +208,32 @@ def main(args: argparse.Namespace):
     topomap = [PILImage.open(os.path.join(topomap_dir, fname)) for fname in topomap_filenames]
     num_nodes = len(topomap)
     
-    assert -1 <= args.goal_node < num_nodes, "Invalid goal index"
-    goal_node = len(topomap) - 1 if args.goal_node == -1 else args.goal_node
+    # Determine start and goal nodes from NODE_RANGE or command line arguments
+    if args.start_node is not None or args.goal_node is not None:
+        # Use command line arguments if provided, otherwise use NODE_RANGE defaults
+        start_node = args.start_node if args.start_node is not None else NODE_RANGE[0]
+        goal_node = args.goal_node if args.goal_node is not None else NODE_RANGE[1]
+        goal_node = goal_node if goal_node != -1 else num_nodes - 1
+    else:
+        # Use NODE_RANGE global settings
+        if NODE_RANGE[0] == -1 and NODE_RANGE[1] == -1:
+            # Auto-detect full range
+            start_node = 0
+            goal_node = num_nodes - 1
+        else:
+            start_node = NODE_RANGE[0]
+            goal_node = NODE_RANGE[1] if NODE_RANGE[1] != -1 else num_nodes - 1
+    
+    assert 0 <= start_node < num_nodes, f"Invalid start index. Must be between 0 and {num_nodes-1}"
+    assert 0 <= goal_node < num_nodes, f"Invalid goal index. Must be between 0 and {num_nodes-1}"
+    assert start_node <= goal_node, "Start node must be <= goal node"
+    
+    print(f"🗺️ Navigation setup: Start node {start_node} → Goal node {goal_node} (Total: {num_nodes} nodes)")
 
     rclpy.init()
     global node
     node = NavigationNode()
-    closest_node = 0
+    closest_node = start_node  # 從指定的起始節點開始
     reached_goal = False
     start, end = -1, -1
 
@@ -223,7 +251,7 @@ def main(args: argparse.Namespace):
             continue
 
         if len(context_queue) > model_params["context_size"]:
-            start = max(closest_node - args.radius, 0)
+            start = max(closest_node - args.radius, start_node)  # 不能小於起始節點
             end = min(closest_node + args.radius + 1, goal_node)
 
             if model_params["model_type"] == "nomad":
@@ -321,9 +349,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model",
         "-m",
-        default="vint",
+        default=MODEL,
         type=str,
-        help="model name (only nomad is supported) (hint: check config/models.yaml) (default: nomad)",
+        choices=["gnm", "vint", "nomad"],
+        help="model name to use for navigation (gnm/vint/nomad) (check config/models.yaml for available models) (default: vint)",
     )
     parser.add_argument(
         "--waypoint",
@@ -336,10 +365,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--goal-node",
         "-g",
-        default=-1,
+        default=None,
         type=int,
-        help="""goal node index in the topomap (if -1, then the goal node is
-        the last node in the topomap) (default: -1)""",
+        help=f"""goal node index in the topomap (if -1, then the goal node is
+        the last node in the topomap) (default: use NODE_RANGE[1]={NODE_RANGE[1]})""",
+    )
+    parser.add_argument(
+        "--start-node",
+        "-s",
+        default=None,
+        type=int,
+        help=f"""start node index in the topomap (index of the image to start navigation from) (default: use NODE_RANGE[0]={NODE_RANGE[0]})""",
     )
     parser.add_argument(
         "--close-threshold",

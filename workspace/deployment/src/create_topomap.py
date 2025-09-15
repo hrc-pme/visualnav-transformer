@@ -16,17 +16,21 @@ from scipy.spatial.transform import Rotation as R
 IMAGE_TOPIC = "/camera/camera/color/image_raw"
 ODOM_TOPIC = "/odom"
 TOPOMAP_IMAGES_DIR = "../topomaps"
-TOPOMAP_NAME = "6e6"
+TOPOMAP_NAME = "6e-elevator"
 RECORD_PKL = False
+AUTO_SHUTDOWN = False  # Whether to automatically shutdown when no image is received
+TIMEOUT_DURATION = None  # Timeout duration in seconds (None means 2 * dt)
 
 
 class TopomapNode(Node):
-    def __init__(self, image_topic, odom_topic, output_dir, dt):
+    def __init__(self, image_topic, odom_topic, output_dir, dt, auto_shutdown=True, timeout_duration=None):
         super().__init__("create_topomap")
         self.image_topic = image_topic
         self.odom_topic = odom_topic
         self.output_dir = output_dir
         self.dt = dt
+        self.auto_shutdown = auto_shutdown
+        self.timeout_duration = timeout_duration if timeout_duration is not None else 2 * dt
         self.obs_img = None
         self.last_odom = None
         self.traj_data = []
@@ -88,10 +92,12 @@ class TopomapNode(Node):
             self.start_time = time.time()
             self.obs_img = None
 
-        elif time.time() - self.start_time > 2 * self.dt:
+        elif self.auto_shutdown and time.time() - self.start_time > self.timeout_duration:
             self.get_logger().warn("No image received. Shutting down...")
             self.save_traj_data()
             rclpy.shutdown()
+        elif not self.auto_shutdown and time.time() - self.start_time > self.timeout_duration:
+            self.get_logger().warn(f"No image received for {self.timeout_duration:.1f} seconds, but continuing due to auto_shutdown=False")
 
     def save_traj_data(self):
         if RECORD_PKL:
@@ -114,11 +120,31 @@ def main():
         type=float,
         help="Sampling period (default: 0.1 seconds)",
     )
+    parser.add_argument(
+        "--no-auto-shutdown",
+        action="store_true",
+        help="Disable automatic shutdown when no image is received (default: False)",
+    )
+    parser.add_argument(
+        "--timeout",
+        default=TIMEOUT_DURATION,
+        type=float,
+        help="Timeout duration in seconds before warning/shutdown (default: 2 * dt)",
+    )
     args = parser.parse_args()
 
     rclpy.init()
     topomap_name_dir = os.path.join(TOPOMAP_IMAGES_DIR, TOPOMAP_NAME)
-    node = TopomapNode(IMAGE_TOPIC, ODOM_TOPIC, topomap_name_dir, args.dt)
+    # Use global AUTO_SHUTDOWN as default, but allow command line override
+    auto_shutdown = AUTO_SHUTDOWN and not args.no_auto_shutdown
+    node = TopomapNode(
+        IMAGE_TOPIC, 
+        ODOM_TOPIC, 
+        topomap_name_dir, 
+        args.dt,
+        auto_shutdown=auto_shutdown,
+        timeout_duration=args.timeout
+    )
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
