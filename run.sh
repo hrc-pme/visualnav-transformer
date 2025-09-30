@@ -60,8 +60,18 @@ echo "[VISUALNAV] Remove Containers ..."
 docker compose -p visualnav -f $COMPOSE_FILE down --volumes --remove-orphans
 
 ## 2. environment setup  
+# Check if DISPLAY is set, default to :0 for local use
 export DISPLAY=${DISPLAY:-:0}
-xhost +local:docker
+
+# Only run xhost for local displays (not SSH forwarded)
+if [[ "$DISPLAY" != localhost:* ]]; then
+  echo "[VISUALNAV] Allowing Docker containers to access X11..."
+  xhost +local:docker 2>/dev/null || echo "[WARNING] xhost failed, X11 may not work"
+else
+  echo "[VISUALNAV] Detected SSH X11 forwarding (DISPLAY=$DISPLAY)"
+  echo "[WARNING] X11 forwarding may not work in container. Consider using native display."
+fi
+
 cd docker
 
 ## 3. deployment

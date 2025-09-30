@@ -1,0 +1,75 @@
+# Waypoint Visualization Configuration
+# Adjust these parameters to match your camera setup and robot geometry
+
+# Camera mounting parameters
+camera:
+  # Height of camera above ground (meters)
+  height: 0.5
+  
+  # Camera tilt angle (degrees, 0 = horizontal, positive = looking down)
+  tilt_angle: 30
+  
+  # Field of view (degrees)
+  fov_horizontal: 60
+  fov_vertical: 45
+
+# Robot geometry
+robot:
+  # Distance from camera to robot center/wheel base (meters)
+  camera_to_base: 0.3
+
+# Visualization parameters
+visualization:
+  # Robot position in image (as fraction of image dimensions)
+  robot_position:
+    x_fraction: 0.5    # 0.5 = center horizontally
+    y_fraction: 0.95   # 0.95 = near bottom
+  
+  # Scaling factors (how meters map to pixels)
+  # These control how much space waypoints take up in the image
+  # Larger values = waypoints appear larger/closer
+  scaling:
+    base_horizontal: 1  # Denominator for width / base_horizontal
+    base_vertical: 19.5    # Denominator for height / base_vertical
+  
+  # Perspective effect parameters
+  perspective:
+    # How much horizontal spreading increases with distance
+    # 0.0 = no spreading, 0.5 = moderate, 1.0 = strong
+    horizontal_amplification: 0.3
+    
+    # How much vertical compression increases with distance
+    # 0.0 = no compression, 1.0 = strong compression
+    vertical_compression: 0.5
+  
+  # Curve smoothness (number of interpolation points between waypoints)
+  curve_smoothness: 15
+  
+  # Visual appearance
+  appearance:
+    candidate_color: [0, 0, 255]      # BGR: Red
+    candidate_thickness: 2
+    candidate_point_radius: 3
+    
+    chosen_color: [0, 255, 0]         # BGR: Green
+    chosen_thickness: 5
+    chosen_point_radius: 7
+    chosen_outline_radius: 9
+    
+    robot_color: [255, 255, 255]      # BGR: White
+    robot_radius: 8
+    robot_outline_radius: 10
+    robot_outline_color: [0, 0, 0]    # BGR: Black
+    
+    arrow_length: 25
+    arrow_color: [255, 255, 255]      # BGR: White
+    arrow_thickness: 2
+
+# Advanced tuning (for fine-tuning the coordinate transformation)
+advanced:
+  # Enable debug visualization (draw grid, distance markers, etc.)
+  debug_mode: false
+  
+  # Custom transformation function (for non-linear perspective)
+  # Options: "linear", "perspective", "fisheye"
+  transformation_type: "perspective"

@@ -3,12 +3,14 @@
 # image obs topics
 FRONT_IMAGE_TOPIC = "/usb_cam_front/image_raw"
 REVERSE_IMAGE_TOPIC = "/usb_cam_reverse/image_raw"
-IMAGE_TOPIC = "/navigation_camera/image_raw"
+IMAGE_TOPIC = "/camera/camera/color/image_raw"  # RealSense camera topic
 
 # exploration topics
 SUBGOALS_TOPIC = "/subgoals"
 GRAPH_NAME_TOPIC = "/graph_name"
 WAYPOINT_TOPIC = "/waypoint"
+CMD_VEL_TOPIC = "/stretch/cmd_vel"
+CURRENT_NODE_TOPIC = "/vn/node"
 REVERSE_MODE_TOPIC = "/reverse_mode"
 SAMPLED_OUTPUTS_TOPIC = "/sampled_outputs"
 REACHED_GOAL_TOPIC = "/topoplan/reached_goal"
@@ -17,6 +19,8 @@ BACKTRACKING_IMAGE_TOPIC = "/backtracking_image"
 FRONTIER_IMAGE_TOPIC = "/frontier_image"
 SUBGOALS_SHAPE_TOPIC = "/subgoal_shape"
 SAMPLED_ACTIONS_TOPIC = "/sampled_actions"
+CANDIDATE_WAYPOINTS_TOPIC = "/vn/candidate_waypoints"
+CHOSEN_WAYPOINT_TOPIC = "/vn/chosen_waypoint"
 ANNOTATED_IMAGE_TOPIC = "/annotated_image"
 CURRENT_NODE_IMAGE_TOPIC = "/current_node_image"
 FLIP_DIRECTION_TOPIC = "/flip_direction"

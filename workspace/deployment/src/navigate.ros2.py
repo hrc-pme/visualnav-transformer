@@ -17,8 +17,8 @@ from PIL import Image as PILImage
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float32MultiArray
-from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC
+from std_msgs.msg import Bool, Float32MultiArray, Int32
+from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC
 from utils import load_model, msg_to_pil, to_numpy, transform_images
 from vint_train.training.train_utils import get_action
 
@@ -143,8 +143,11 @@ class NavigationNode(Node):
         qos = QoSProfile(depth=10)
         self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, qos)
         self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos)
+        self.candidate_waypoints_pub = self.create_publisher(Float32MultiArray, CANDIDATE_WAYPOINTS_TOPIC, qos)
+        self.chosen_waypoint_pub = self.create_publisher(Float32MultiArray, CHOSEN_WAYPOINT_TOPIC, qos)
         self.image_pub = self.create_publisher(Image, "camera/image/visualnav", qos_profile_sensor_data)
         self.reach_goal_pub = self.create_publisher(Bool, "/reach_goal", qos)
+        self.current_node_pub = self.create_publisher(Int32, CURRENT_NODE_TOPIC, qos)  # 添加 current node 發布器
         self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 添加速度控制發布器
         self.bridge = CvBridge()
         
@@ -286,7 +289,15 @@ def main(args: argparse.Namespace):
 
                 naction = to_numpy(get_action(naction))
                 node.sampled_actions_pub.publish(Float32MultiArray(data=np.concatenate(([0], naction.flatten())).tolist()))
+                
+                # Publish candidate waypoints for NOMAD (all samples at the chosen waypoint index)
+                candidate_wps = naction[:, args.waypoint, :]  # shape: (num_samples, 2)
+                node.candidate_waypoints_pub.publish(Float32MultiArray(data=candidate_wps.flatten().tolist()))
+                
                 chosen_waypoint = naction[0][args.waypoint]
+                
+                # Publish chosen waypoint
+                node.chosen_waypoint_pub.publish(Float32MultiArray(data=chosen_waypoint.tolist()))
 
             else:
                 batch_obs_imgs = [transform_images(context_queue, model_params["image_size"]) for _ in range(end - start + 1)]
@@ -299,6 +310,11 @@ def main(args: argparse.Namespace):
                 waypoints = to_numpy(waypoints)
 
                 min_dist_idx = np.argmin(distances)
+                
+                # Publish candidate waypoints for GNM/ViNT (all candidate nodes at the chosen waypoint index)
+                candidate_wps = waypoints[:, args.waypoint, :]  # shape: (num_candidates, 2)
+                node.candidate_waypoints_pub.publish(Float32MultiArray(data=candidate_wps.flatten().tolist()))
+                
                 if distances[min_dist_idx] > args.close_threshold:
                     chosen_waypoint = waypoints[min_dist_idx][args.waypoint]
                     closest_node = start + min_dist_idx
@@ -314,6 +330,9 @@ def main(args: argparse.Namespace):
                     else:
                         chosen_waypoint = cur_wp
                         closest_node = start + min_dist_idx
+                
+                # Publish chosen waypoint
+                node.chosen_waypoint_pub.publish(Float32MultiArray(data=chosen_waypoint.tolist()))
 
         # Normalize and scale XY (linear) and Z (yaw)
         if model_params["normalize"]:
@@ -322,6 +341,11 @@ def main(args: argparse.Namespace):
 
         waypoint_msg = Float32MultiArray(data=chosen_waypoint.tolist())
         node.waypoint_pub.publish(waypoint_msg)
+        
+        # 發布 current node
+        current_node_msg = Int32()
+        current_node_msg.data = int(closest_node)
+        node.current_node_pub.publish(current_node_msg)
         
         # 檢查是否到達目標
         goal_reached = bool(closest_node == goal_node)
