@@ -17,13 +17,14 @@ from PIL import Image as PILImage
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from std_msgs.msg import Bool, Float32MultiArray, Int32
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
+import cv2
 
 # Local imports
-from topic_names import IMAGE_TOPIC, WAYPOINT_TOPIC, SAMPLED_ACTIONS_TOPIC, CMD_VEL_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC
+from topic_names import IMAGE_TOPIC, COMPRESSED_IMAGE_TOPIC, WAYPOINT_TOPIC, SAMPLED_ACTIONS_TOPIC, CMD_VEL_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC, START_NODE_TOPIC, END_NODE_TOPIC
 from utils import load_model, msg_to_pil, to_numpy, transform_images
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from vint_train.training.train_utils import get_action
@@ -92,6 +93,8 @@ class NavigationCore(Node):
         self.context_queue = []
         self.current_node = -1  # Will be updated from /vn/node topic
         self.goal_node = -1
+        self.start_node = -1  # Will be updated from /vn/start_node topic
+        self.end_node = -1    # Will be updated from /vn/end_node topic
         self.reached_goal = False
         self.waypoint = None
         self.candidate_waypoints = None  # Candidate waypoints from navigate.ros2.py
@@ -235,11 +238,11 @@ class NavigationCore(Node):
         self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos)
         self.reach_goal_pub = self.create_publisher(Bool, "/reach_goal", qos)
         
-        # Subscribers
+        # Subscribers - 使用壓縮影像以減少網路頻寬
         self.create_subscription(
-            Image, 
-            IMAGE_TOPIC, 
-            self._image_callback, 
+            CompressedImage,  # 改用壓縮影像格式
+            COMPRESSED_IMAGE_TOPIC, 
+            self._compressed_image_callback,  # 使用新的壓縮影像回調函數
             qos_profile_sensor_data
         )
         
@@ -283,15 +286,70 @@ class NavigationCore(Node):
             qos
         )
         
-        self.get_logger().info(f"Subscribed to {IMAGE_TOPIC}")
+        # Subscribe to start_node from navigate.ros2.py
+        self.create_subscription(
+            Int32,
+            START_NODE_TOPIC,
+            self._start_node_callback,
+            qos
+        )
+        
+        # Subscribe to end_node from navigate.ros2.py
+        self.create_subscription(
+            Int32,
+            END_NODE_TOPIC,
+            self._end_node_callback,
+            qos
+        )
+        
+        self.get_logger().info(f"Subscribed to {COMPRESSED_IMAGE_TOPIC} (compressed)")
         self.get_logger().info(f"Subscribed to {WAYPOINT_TOPIC}")
         self.get_logger().info(f"Subscribed to {CMD_VEL_TOPIC}")
         self.get_logger().info(f"Subscribed to {CURRENT_NODE_TOPIC}")
         self.get_logger().info(f"Subscribed to {CANDIDATE_WAYPOINTS_TOPIC}")
         self.get_logger().info(f"Subscribed to {CHOSEN_WAYPOINT_TOPIC}")
+        self.get_logger().info(f"Subscribed to {START_NODE_TOPIC}")
+        self.get_logger().info(f"Subscribed to {END_NODE_TOPIC}")
+    
+    def _compressed_image_callback(self, msg: CompressedImage):
+        """Callback for compressed camera images"""
+        try:
+            # 解壓縮影像 - 使用 cv2 直接從壓縮數據解碼
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            if cv_image is None:
+                self.get_logger().error("Failed to decompress image")
+                return
+            
+            # 轉換為 RGB (OpenCV 使用 BGR)
+            cv_image_rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+            
+            # 轉換為 PIL Image
+            obs_img = PILImage.fromarray(cv_image_rgb)
+            
+            # Rotate image (adjust as needed for your camera orientation)
+            obs_img = obs_img.rotate(90, expand=True)
+            
+            # Update latest image (轉回 BGR 供顯示使用)
+            self.latest_image = cv2.cvtColor(np.array(obs_img), cv2.COLOR_RGB2BGR)
+            
+            # Log first image reception
+            if len(self.context_queue) == 0:
+                self.get_logger().info("First compressed image received and decompressed!")
+            
+            # Update context queue
+            if len(self.context_queue) < self.context_size + 1:
+                self.context_queue.append(obs_img)
+            else:
+                self.context_queue.pop(0)
+                self.context_queue.append(obs_img)
+                
+        except Exception as e:
+            self.get_logger().error(f"Compressed image callback error: {e}")
     
     def _image_callback(self, msg: Image):
-        """Callback for camera images"""
+        """Callback for camera images (原始未壓縮格式 - 已棄用，保留以備不時之需)"""
         try:
             # Convert ROS image to PIL
             obs_img = msg_to_pil(msg)
@@ -300,7 +358,6 @@ class NavigationCore(Node):
             obs_img = obs_img.rotate(90, expand=True)
             
             # Update latest image
-            import cv2
             self.latest_image = cv2.cvtColor(np.array(obs_img), cv2.COLOR_RGB2BGR)
             
             # Log first image reception
@@ -358,6 +415,22 @@ class NavigationCore(Node):
         except Exception as e:
             self.get_logger().error(f"Chosen waypoint callback error: {e}")
     
+    def _start_node_callback(self, msg: Int32):
+        """Callback for start_node from navigate.ros2.py"""
+        try:
+            self.start_node = msg.data
+            # self.get_logger().info(f"Received start_node: {msg.data}")
+        except Exception as e:
+            self.get_logger().error(f"Start_node callback error: {e}")
+    
+    def _end_node_callback(self, msg: Int32):
+        """Callback for end_node from navigate.ros2.py"""
+        try:
+            self.end_node = msg.data
+            # self.get_logger().info(f"Received end_node: {msg.data}")
+        except Exception as e:
+            self.get_logger().error(f"End_node callback error: {e}")
+    
     def step(self):
         """
         Perform one navigation step.
@@ -383,8 +456,8 @@ class NavigationCore(Node):
             self.waypoint_pub.publish(waypoint_msg)
             self.waypoint = chosen_waypoint
             
-            # Update goal status
-            reached = bool(self.current_node == self.goal_node)
+            # Update goal status - 使用 end_node 來判斷是否到達終點
+            reached = bool(self.current_node == self.end_node) if self.end_node >= 0 else False
             self.reach_goal_pub.publish(Bool(data=reached))
             self.reached_goal = reached
             

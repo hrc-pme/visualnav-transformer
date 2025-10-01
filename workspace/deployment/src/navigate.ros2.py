@@ -18,19 +18,19 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32MultiArray, Int32
-from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC
+from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC, START_NODE_TOPIC, END_NODE_TOPIC
 from utils import load_model, msg_to_pil, to_numpy, transform_images
 from vint_train.training.train_utils import get_action
 
 # CONSTANTS
 TOPOMAP_IMAGES_DIR = "../topomaps"
-TOPOMAP_NAME = "6e-elevator"
+TOPOMAP_NAME = "6e-dr"
 MODEL_WEIGHTS_PATH = "../model_weights"
 ROBOT_CONFIG_PATH = "../config/robot.yaml"
 MODEL_CONFIG_PATH = "../config/models.yaml"
 MODEL = "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)
-NODE_RANGE = [0, 167]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
-Z_RATIO = 1  # scale z (yaw) speed to half
+NODE_RANGE = [-1, -1]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
+Z_RATIO = 0.3  # scale z (yaw) speed to half
 XY_RATIO = 1
 
 with open(ROBOT_CONFIG_PATH, "r") as f:
@@ -148,6 +148,8 @@ class NavigationNode(Node):
         self.image_pub = self.create_publisher(Image, "camera/image/visualnav", qos_profile_sensor_data)
         self.reach_goal_pub = self.create_publisher(Bool, "/reach_goal", qos)
         self.current_node_pub = self.create_publisher(Int32, CURRENT_NODE_TOPIC, qos)  # 添加 current node 發布器
+        self.start_node_pub = self.create_publisher(Int32, START_NODE_TOPIC, qos)  # 添加 start node 發布器
+        self.end_node_pub = self.create_publisher(Int32, END_NODE_TOPIC, qos)  # 添加 end node 發布器
         self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 添加速度控制發布器
         self.bridge = CvBridge()
         
@@ -236,6 +238,15 @@ def main(args: argparse.Namespace):
     rclpy.init()
     global node
     node = NavigationNode()
+    
+    # 發布 start 和 end node 資訊
+    start_node_msg = Int32()
+    start_node_msg.data = int(start_node)
+    node.start_node_pub.publish(start_node_msg)
+    
+    end_node_msg = Int32()
+    end_node_msg.data = int(goal_node)
+    node.end_node_pub.publish(end_node_msg)
     closest_node = start_node  # 從指定的起始節點開始
     reached_goal = False
     start, end = -1, -1
@@ -351,6 +362,15 @@ def main(args: argparse.Namespace):
         goal_reached = bool(closest_node == goal_node)
         node.reach_goal_pub.publish(Bool(data=goal_reached))
 
+        # 持續發布 start 和 end node 資訊（確保GUI能收到）
+        start_node_msg = Int32()
+        start_node_msg.data = int(start_node)
+        node.start_node_pub.publish(start_node_msg)
+        
+        end_node_msg = Int32()
+        end_node_msg.data = int(goal_node)
+        node.end_node_pub.publish(end_node_msg)
+        
         waypoint_str = f"[{chosen_waypoint[0]:.2f} {chosen_waypoint[1]:.2f} {chosen_waypoint[2]:.2f}]"
         print(f"[Status] Node: {closest_node}/{goal_node} | Ref Node: {start} to {end} | Waypoint: {waypoint_str}")
 

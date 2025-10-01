@@ -16,7 +16,7 @@ from scipy.spatial.transform import Rotation as R
 IMAGE_TOPIC = "/camera/camera/color/image_raw"
 ODOM_TOPIC = "/odom"
 TOPOMAP_IMAGES_DIR = "../topomaps"
-TOPOMAP_NAME = "6e-elevator"
+TOPOMAP_NAME = "6e-dr"
 RECORD_PKL = False
 AUTO_SHUTDOWN = False  # Whether to automatically shutdown when no image is received
 TIMEOUT_DURATION = None  # Timeout duration in seconds (None means 2 * dt)

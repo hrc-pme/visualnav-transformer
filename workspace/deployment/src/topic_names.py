@@ -4,6 +4,7 @@
 FRONT_IMAGE_TOPIC = "/usb_cam_front/image_raw"
 REVERSE_IMAGE_TOPIC = "/usb_cam_reverse/image_raw"
 IMAGE_TOPIC = "/camera/camera/color/image_raw"  # RealSense camera topic
+COMPRESSED_IMAGE_TOPIC = "/camera/camera/color/image_raw/compressed"  # Compressed image topic
 
 # exploration topics
 SUBGOALS_TOPIC = "/subgoals"
@@ -21,6 +22,8 @@ SUBGOALS_SHAPE_TOPIC = "/subgoal_shape"
 SAMPLED_ACTIONS_TOPIC = "/sampled_actions"
 CANDIDATE_WAYPOINTS_TOPIC = "/vn/candidate_waypoints"
 CHOSEN_WAYPOINT_TOPIC = "/vn/chosen_waypoint"
+START_NODE_TOPIC = "/vn/start_node"
+END_NODE_TOPIC = "/vn/end_node"
 ANNOTATED_IMAGE_TOPIC = "/annotated_image"
 CURRENT_NODE_IMAGE_TOPIC = "/current_node_image"
 FLIP_DIRECTION_TOPIC = "/flip_direction"

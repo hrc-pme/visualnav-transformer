@@ -39,9 +39,12 @@ from navigation_core import NavigationCore
 # Load waypoint visualization config
 WAYPOINT_VIZ_CONFIG_PATH = "../config/waypoint_visualization.yaml"
 
+# Default topomap directory
+DEFAULT_TOPOMAP_DIR = "../topomaps/6e-dr"
+
 
 class NavigationTkGUI:
-    def __init__(self, master, topomap_dir="../topomaps/6e-elevator"):
+    def __init__(self, master, topomap_dir=DEFAULT_TOPOMAP_DIR):
         self.master = master
         self.master.title('Visual Navigation - Tkinter GUI')
         self.master.geometry('1400x900')
@@ -74,6 +77,8 @@ class NavigationTkGUI:
         # State variables (must be set before setup_ui)
         self.frame_count = 0
         self.running = True
+        self.near_end_node = False  # 標記是否接近終點（用於鎖定顯示）
+        self.locked_current_node = -1  # 鎖定的 current node（當接近終點時）
         
         # Setup UI
         self.setup_ui()
@@ -165,8 +170,9 @@ class NavigationTkGUI:
         # Status labels
         self.status_labels = {}
         status_items = [
+            ('Start Node:', 'start_node'),
             ('Current Node:', 'current_node'),
-            ('Goal Node:', 'goal_node'),
+            ('End Node:', 'end_node'),
             ('Waypoint:', 'waypoint'),
             ('Linear Vel:', 'linear_vel'),
             ('Angular Vel:', 'angular_vel'),
@@ -536,9 +542,34 @@ class NavigationTkGUI:
             
             # Check c: Update navigation status
             # Get current_node from ROS2 topic (subscribed from navigate.ros2.py)
-            current_node = getattr(self.nav_core, 'current_node', -1)
-            goal_node = getattr(self.nav_core, 'goal_node', -1)
+            current_node_from_ros = getattr(self.nav_core, 'current_node', -1)
+            start_node = getattr(self.nav_core, 'start_node', -1)
+            end_node = getattr(self.nav_core, 'end_node', -1)
             
+            # 檢查是否接近終點（距離 < 3），如果是則鎖定到 end_node
+            if end_node >= 0 and current_node_from_ros >= 0:
+                distance_to_end = end_node - current_node_from_ros
+                if distance_to_end < 3 and distance_to_end >= 0:
+                    # 接近終點，鎖定 current_node 為 end_node
+                    if not self.near_end_node:
+                        self.near_end_node = True
+                        self.locked_current_node = end_node
+                        print(f"[INFO] Near end node! Locking current_node to {end_node}")
+                    current_node = self.locked_current_node
+                else:
+                    # 未接近終點，使用 ROS2 的值
+                    self.near_end_node = False
+                    current_node = current_node_from_ros
+            else:
+                current_node = current_node_from_ros
+            
+            # Update start node display
+            if start_node >= 0:
+                self.status_labels['start_node'].config(text=str(start_node))
+            else:
+                self.status_labels['start_node'].config(text='N/A')
+            
+            # Update current node display
             if current_node >= 0:
                 self.status_labels['current_node'].config(text=str(current_node))
                 # Update topomap to show current node image
@@ -546,10 +577,11 @@ class NavigationTkGUI:
             else:
                 self.status_labels['current_node'].config(text='N/A')
             
-            if goal_node > 0:
-                self.status_labels['goal_node'].config(text=str(goal_node))
+            # Update end node display
+            if end_node >= 0:
+                self.status_labels['end_node'].config(text=str(end_node))
             else:
-                self.status_labels['goal_node'].config(text='N/A')
+                self.status_labels['end_node'].config(text='N/A')
             
             # Waypoint (from navigate.ros2.py via /waypoint topic)
             if hasattr(self.nav_core, 'waypoint') and self.nav_core.waypoint is not None:
@@ -559,10 +591,17 @@ class NavigationTkGUI:
             else:
                 self.status_labels['waypoint'].config(text='N/A')
             
-            # Progress
-            if goal_node > 0 and current_node >= 0:
-                progress = (current_node / goal_node) * 100
+            # Progress - 修正進度計算使用 start 和 end node
+            start_node = getattr(self.nav_core, 'start_node', -1)
+            end_node = getattr(self.nav_core, 'end_node', -1)
+            if start_node >= 0 and end_node > start_node and current_node >= 0:
+                # 計算從 start_node 到 end_node 的進度
+                total_distance = end_node - start_node
+                current_distance = max(0, current_node - start_node)
+                progress = min(100, (current_distance / total_distance) * 100)
                 self.progress_bar['value'] = progress
+            else:
+                self.progress_bar['value'] = 0
             
             # Reach goal
             reach_goal = getattr(self.nav_core, 'reached_goal', False)
@@ -657,7 +696,7 @@ def main():
     print("=" * 60)
     
     # Get topomap directory from command line
-    topomap_dir = sys.argv[1] if len(sys.argv) > 1 else "../topomaps/6e-elevator"
+    topomap_dir = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TOPOMAP_DIR
     
     # Create Tkinter app
     root = tk.Tk()

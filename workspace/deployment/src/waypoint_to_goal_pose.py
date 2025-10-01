@@ -38,7 +38,8 @@ class Waypoint2Goal(Node):
 
         self.create_timer(1.0 / RATE, self.control_loop)
 
-        self.get_logger().info("Waypoint2Goal node has been initialized.")
+        # 初始化時清空並輸出單行狀態
+        print("\r[Waypoint2Goal] Initialized. Waiting for waypoint..." + " "*50, flush=True)
 
     def convert_waypoint_pose(self, waypoint: np.ndarray) -> PoseStamped:
         assert len(waypoint) in [2, 4], "waypoint must be 2D or 4D"
@@ -65,13 +66,12 @@ class Waypoint2Goal(Node):
         return goal_pose
 
     def callback_drive(self, waypoint_msg: Float32MultiArray):
-        self.get_logger().info("Waypoint received.")
         self.waypoint = np.array(waypoint_msg.data)
+        # 不需要每次都輸出 waypoint 接收訊息，改為在處理時輸出
 
     def callback_reached_goal(self, reached_goal_msg: Bool):
         self.reached_goal = reached_goal_msg.data
-        if self.reached_goal:
-            self.get_logger().info("Goal reached! Stopping robot.")
+        # 移除 log 輸出，改為在 control_loop 中統一輸出
 
     def control_loop(self):
         if self.reached_goal:
@@ -85,14 +85,13 @@ class Waypoint2Goal(Node):
             twist.angular.z = 0.0
             self.vel_pub.publish(twist)
             self.waypoint = None  # 清除航點以避免繼續處理
-            self.get_logger().info("Robot stopped. Goal reached.")
+            print(f"\r[Waypoint2Goal] 🎯 GOAL REACHED! Robot stopped." + " "*80, end='', flush=True)
             return
 
         if self.waypoint is not None:
             # 發佈目標位姿
             goal_pose = self.convert_waypoint_pose(self.waypoint)
             self.goal_pub.publish(goal_pose)
-            self.get_logger().info(f"Publishing goal: {self.waypoint}")
 
             # 計算速度指令（簡單比例控制器）
             x, y = self.waypoint[0], self.waypoint[1]
@@ -112,10 +111,13 @@ class Waypoint2Goal(Node):
             twist.angular.z = float(angular_vel)
 
             self.vel_pub.publish(twist)
-            self.get_logger().info(f"Publishing velocity: linear={linear_vel:.2f}, angular={angular_vel:.2f}")
+            # 使用 \r 清除同行並輸出新的狀態訊息，加上空格填充以清除舊內容
+            print(f"\r[Waypoint2Goal] Vel: lin={linear_vel:.2f}m/s, ang={angular_vel:.2f}rad/s | Waypoint: [{x:.2f}, {y:.2f}] | Dist: {distance:.2f}m" + " "*20, end='', flush=True)
 
         else:
-            self.get_logger().warn("No valid waypoint received.")
+            # 靜默等待 waypoint，顯示等待狀態
+            print(f"\r[Waypoint2Goal] Waiting for waypoint..." + " "*80, end='', flush=True)
+            pass
 
 
 def main(args=None):
