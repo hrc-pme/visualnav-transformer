@@ -11,19 +11,25 @@ x-common-settings: &common
     # GUI support for ROS applications
     - $HOME/.Xauthority:/root/.Xauthority:ro
     - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    - /etc/localtime:/etc/localtime:ro
     
     # Workspace volume
     - ../workspace:/workspace
 
   environment:
-    - ROS_DOMAIN_ID=25
+    - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     - DISPLAY=${DISPLAY}
     - XAUTHORITY=/root/.Xauthority
     - NVIDIA_VISIBLE_DEVICES=all
     - NVIDIA_DRIVER_CAPABILITIES=all
 
+    # Device access
+    - "/dev:/dev"
+    - "/dev/shm:/dev/shm"
+
   # Network mode for SSH X11 forwarding
   network_mode: host
+  ipc: host
   
   # Container settings
   tty: true

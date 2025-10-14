@@ -60,8 +60,8 @@ echo "[VISUALNAV] Remove Containers ..."
 docker compose -p visualnav -f $COMPOSE_FILE down --volumes --remove-orphans
 
 ## 2. environment setup  
-# Check if DISPLAY is set, default to :0 for local use
 export DISPLAY=${DISPLAY:-:0}
+export ROS_DOMAIN_ID=25
 
 # Only run xhost for local displays (not SSH forwarded)
 if [[ "$DISPLAY" != localhost:* ]]; then
