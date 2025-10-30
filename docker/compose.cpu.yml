@@ -36,10 +36,6 @@ x-common-settings: &common
 ###   Container Services   ###
 ##############################
 services:
-  deploy:
-    <<: *common
-    container_name: visualnav-deploy-cpu
-    command: ["/bin/bash"]
   dev:
     <<: *common
     container_name: visualnav-dev-cpu

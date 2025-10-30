@@ -34,13 +34,16 @@ import yaml
 # ROS2
 import rclpy
 
-from navigation_core import NavigationCore
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from gui.navigation_core import NavigationCore
 
 # Load waypoint visualization config
-WAYPOINT_VIZ_CONFIG_PATH = "../config/waypoint_visualization.yaml"
+WAYPOINT_VIZ_CONFIG_PATH = "../../config/waypoint_visualization.yaml"
 
 # Default topomap directory
-DEFAULT_TOPOMAP_DIR = "../topomaps/6e-dr"
+DEFAULT_TOPOMAP_DIR = "../../topomaps/6e-dr"
 
 
 class NavigationTkGUI:

@@ -53,10 +53,6 @@ x-gpu-settings: &gpu
 ###   Container Services   ###
 ##############################
 services:
-  deploy:
-    <<: [*common, *gpu]
-    container_name: visualnav-deploy-gpu
-    command: ["/bin/bash"]
   dev:
     <<: [*common, *gpu]
     container_name: visualnav-dev-gpu

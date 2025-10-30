@@ -4,15 +4,15 @@ vint:
 
 late_fusion: 
   config_path: "../../train/config/late_fusion.yaml"
-  ckpt_path: "../model_weights/vint_late_fusion.pth"
+  ckpt_path: "../model_weights/vint.pth"
 
 gnm: 
   config_path: "../../train/config/gnm.yaml"
-  ckpt_path: "../model_weights/gnm.pth"
+  ckpt_path: "../model_weights/vint.pth"
 
 nomad: 
   config_path: "../../train/config/nomad.yaml"
-  ckpt_path: "../model_weights/nomad.pth"
+  ckpt_path: "../model_weights/vint.pth"
 
 
 # add your own model configs here after saving the *.pth file to ../model_weight

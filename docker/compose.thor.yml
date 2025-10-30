@@ -13,6 +13,9 @@ x-common-settings: &common
     - /tmp/.X11-unix:/tmp/.X11-unix:rw
     - /etc/localtime:/etc/localtime:ro
     
+    # IPC socket for GPU communication
+    - /tmp/ipc_socket:/tmp/ipc_socket:rw
+    
     # Workspace volume
     - ../workspace:/workspace
 
@@ -61,10 +64,6 @@ x-gpu-settings: &gpu
 ###   Container Services   ###
 ##############################
 services:
-  deploy:
-    <<: [*common, *gpu]
-    container_name: visualnav-deploy-thor
-    command: ["/bin/bash"]
   dev:
     <<: [*common, *gpu]
     container_name: visualnav-dev-thor

@@ -12,9 +12,10 @@ import yaml
 
 # ROS
 import rospy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from std_msgs.msg import Bool, Float32MultiArray
-from utils import msg_to_pil, to_numpy, transform_images, load_model
+from utils import msg_to_pil, compressed_msg_to_pil, to_numpy, transform_images, load_model
+import cv2
 
 from vint_train.training.train_utils import get_action
 import torch
@@ -50,7 +51,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 def callback_obs(msg):
-    obs_img = msg_to_pil(msg)
+    obs_img = compressed_msg_to_pil(msg)
     if context_size is not None:
         if len(context_queue) < context_size + 1:
             context_queue.append(obs_img)
@@ -98,7 +99,7 @@ def main(args: argparse.Namespace):
     rospy.init_node("EXPLORATION", anonymous=False)
     rate = rospy.Rate(RATE)
     image_curr_msg = rospy.Subscriber(
-        IMAGE_TOPIC, Image, callback_obs, queue_size=1)
+        IMAGE_TOPIC + "/compressed", CompressedImage, callback_obs, queue_size=1)
     waypoint_pub = rospy.Publisher(
         WAYPOINT_TOPIC, Float32MultiArray, queue_size=1)  
     sampled_actions_pub = rospy.Publisher(SAMPLED_ACTIONS_TOPIC, Float32MultiArray, queue_size=1)

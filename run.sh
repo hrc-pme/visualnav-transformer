@@ -2,26 +2,25 @@
 
 # Usage function
 usage() {
-  echo "usage: $0 [platform] [service]"
+  echo "usage: $0 [platform]"
   echo "platform:"
   echo "- nano         Use docker/compose.nano.yml"
   echo "- gpu-cu124    Use docker/compose.gpu.cu124.yml (CUDA 12.4)"
   echo "- gpu-cu129    Use docker/compose.gpu.cu129.yml (CUDA 12.9)"
   echo "- thor         Use docker/compose.thor.yml (NVIDIA Thor - ARM64)"
   echo "- cpu          Use docker/compose.cpu.yml"
-  echo "service:"
-  echo "- deploy       Production deployment service"
-  echo "- dev          Development service"
+  echo ""
+  echo "Note: Only 'dev' service is available (deploy removed)"
   exit 1
 }
 
-# Ensure platform and service arguments are provided
-if [ $# -ne 2 ]; then
+# Ensure platform argument is provided
+if [ $# -ne 1 ]; then
   usage
 fi
 
 PLATFORM=$1
-SERVICE=$2
+SERVICE="dev"  # Always use dev service
 
 # Validate platform argument
 case "$PLATFORM" in
@@ -29,16 +28,6 @@ case "$PLATFORM" in
     ;;
   *)
     echo "Invalid platform: $PLATFORM"
-    usage
-    ;;
-esac
-
-# Validate service argument
-case "$SERVICE" in
-  deploy|dev)
-    ;;
-  *)
-    echo "Invalid service: $SERVICE"
     usage
     ;;
 esac
@@ -85,15 +74,15 @@ fi
 cd docker
 
 ## 3. deployment
-echo "[VISUALNAV] Deploying $SERVICE service on $PLATFORM..."
-docker compose -p visualnav -f ../$COMPOSE_FILE up -d $SERVICE
+echo "[VISUALNAV] Deploying dev service on $PLATFORM..."
+docker compose -p visualnav -f ../$COMPOSE_FILE up -d dev
 
 # For thor platform, also start ROS2 container
 if [ "$PLATFORM" = "thor" ]; then
-  echo "[VISUALNAV] Deploying Thor ROS2 $SERVICE service..."
-  docker compose -p visualnav-ros2 -f ../$COMPOSE_FILE_ROS2 up -d $SERVICE
+  echo "[VISUALNAV] Deploying Thor ROS2 dev service..."
+  docker compose -p visualnav-ros2 -f ../$COMPOSE_FILE_ROS2 up -d dev
 fi
 
 echo "[VISUALNAV] Entering container..."
-docker exec -it visualnav-$SERVICE-$PLATFORM bash
+docker exec -it visualnav-dev-$PLATFORM bash
 

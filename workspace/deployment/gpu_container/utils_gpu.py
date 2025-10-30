@@ -1,28 +1,24 @@
-import io
+"""
+GPU-specific utilities without ROS dependencies.
+Extracted core functions needed for model inference.
+"""
 import os
 import sys
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-# pytorch
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
-from diffusion_policy.model.diffusion.conditional_unet1d import \
-    ConditionalUnet1D
+from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from PIL import Image as PILImage
-# ROS
-from sensor_msgs.msg import Image, CompressedImage
 from torchvision import transforms
 from vint_train.data.data_utils import IMAGE_ASPECT_RATIO
-# models
 from vint_train.models.gnm.gnm import GNM
 from vint_train.models.nomad.nomad import DenseNetwork, NoMaD
 from vint_train.models.nomad.nomad_vint import NoMaD_ViNT, replace_bn_with_gn
 from vint_train.models.vint.vint import ViNT
 from vint_train.models.vint.vit import ViT
-import cv2
 
 
 def load_model(
@@ -108,34 +104,8 @@ def load_model(
     return model
 
 
-def msg_to_pil(msg: Image) -> PILImage.Image:
-    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)
-    pil_image = PILImage.fromarray(img)
-    return pil_image
-
-
-def compressed_msg_to_pil(msg: CompressedImage) -> PILImage.Image:
-    """Convert ROS CompressedImage message to PIL Image"""
-    # Decode compressed image
-    np_arr = np.frombuffer(msg.data, np.uint8)
-    cv_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    
-    # Convert BGR to RGB
-    cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
-    
-    return PILImage.fromarray(cv_img)
-
-
-def pil_to_msg(pil_img: PILImage.Image, encoding="mono8") -> Image:
-    img = np.asarray(pil_img)
-    ros_image = Image(encoding=encoding)
-    ros_image.height, ros_image.width, _ = img.shape
-    ros_image.data = img.ravel().tobytes()
-    ros_image.step = ros_image.width
-    return ros_image
-
-
 def to_numpy(tensor):
+    """Convert torch tensor to numpy array"""
     return tensor.cpu().detach().numpy()
 
 
@@ -149,12 +119,17 @@ def transform_images(pil_imgs: List[PILImage.Image], image_size: List[int], cent
     )
     if type(pil_imgs) != list:
         pil_imgs = [pil_imgs]
+    
+    # Check for empty input
+    if len(pil_imgs) == 0:
+        raise ValueError("transform_images received empty list of images")
+    
     transf_imgs = []
     for pil_img in pil_imgs:
         w, h = pil_img.size
         if center_crop:
             if w > h:
-                pil_img = TF.center_crop(pil_img, (h, int(h * IMAGE_ASPECT_RATIO)))  # crop to the right ratio
+                pil_img = TF.center_crop(pil_img, (h, int(h * IMAGE_ASPECT_RATIO)))
             else:
                 pil_img = TF.center_crop(pil_img, (int(w / IMAGE_ASPECT_RATIO), w))
         pil_img = pil_img.resize(image_size)
@@ -162,8 +137,3 @@ def transform_images(pil_imgs: List[PILImage.Image], image_size: List[int], cent
         transf_img = torch.unsqueeze(transf_img, 0)
         transf_imgs.append(transf_img)
     return torch.cat(transf_imgs, dim=1)
-
-
-# clip angle between -pi and pi
-def clip_angle(angle):
-    return np.mod(angle + np.pi, 2 * np.pi) - np.pi

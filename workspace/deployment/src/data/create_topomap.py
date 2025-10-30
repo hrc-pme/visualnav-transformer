@@ -1,21 +1,27 @@
 import argparse
 import os
+import sys
 import shutil
 import time
 import pickle
 
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 # ROS 2
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from nav_msgs.msg import Odometry
-from utils import msg_to_pil
+from utils import msg_to_pil, compressed_msg_to_pil
+import cv2
 
 from scipy.spatial.transform import Rotation as R
 
 IMAGE_TOPIC = "/camera/camera/color/image_raw"
+USE_COMPRESSED = True  # Set to True to use compressed image topic
 ODOM_TOPIC = "/odom"
-TOPOMAP_IMAGES_DIR = "../topomaps"
+TOPOMAP_IMAGES_DIR = "../../topomaps"
 TOPOMAP_NAME = "6e-dr"
 RECORD_PKL = False
 AUTO_SHUTDOWN = False  # Whether to automatically shutdown when no image is received
@@ -23,7 +29,7 @@ TIMEOUT_DURATION = None  # Timeout duration in seconds (None means 2 * dt)
 
 
 class TopomapNode(Node):
-    def __init__(self, image_topic, odom_topic, output_dir, dt, auto_shutdown=True, timeout_duration=None):
+    def __init__(self, image_topic, odom_topic, output_dir, dt, auto_shutdown=True, timeout_duration=None, use_compressed=False):
         super().__init__("create_topomap")
         self.image_topic = image_topic
         self.odom_topic = odom_topic
@@ -31,18 +37,32 @@ class TopomapNode(Node):
         self.dt = dt
         self.auto_shutdown = auto_shutdown
         self.timeout_duration = timeout_duration if timeout_duration is not None else 2 * dt
+        self.use_compressed = use_compressed
         self.obs_img = None
         self.last_odom = None
         self.traj_data = []
 
-        self.sub_image = self.create_subscription(
-            Image, self.image_topic, self.callback_image, 10
-        )
+        # Subscribe to compressed or raw image based on flag
+        if self.use_compressed:
+            self.sub_image = self.create_subscription(
+                CompressedImage, self.image_topic + "/compressed", self.callback_compressed_image, 10
+            )
+            self.get_logger().info(f"Subscribed to {self.image_topic}/compressed (compressed)")
+        else:
+            self.sub_image = self.create_subscription(
+                Image, self.image_topic, self.callback_image, 10
+            )
+            self.get_logger().info(f"Subscribed to {self.image_topic} (raw)")
+            
         self.sub_odom = self.create_subscription(
             Odometry, self.odom_topic, self.callback_odom, 10
         )
 
-        self.get_logger().info(f"Subscribed to {self.image_topic} and {self.odom_topic}")
+        self.sub_odom = self.create_subscription(
+            Odometry, self.odom_topic, self.callback_odom, 10
+        )
+
+        self.get_logger().info(f"Subscribed to {self.odom_topic}")
         self.remove_files_in_dir(self.output_dir)
         self.get_logger().info(f"Saving data to {self.output_dir}")
 
@@ -66,6 +86,9 @@ class TopomapNode(Node):
 
     def callback_image(self, msg: Image):
         self.obs_img = msg_to_pil(msg).rotate(270, expand=True)
+    
+    def callback_compressed_image(self, msg: CompressedImage):
+        self.obs_img = compressed_msg_to_pil(msg).rotate(270, expand=True)
 
     def callback_odom(self, msg: Odometry):
         pos = msg.pose.pose.position
@@ -143,7 +166,8 @@ def main():
         topomap_name_dir, 
         args.dt,
         auto_shutdown=auto_shutdown,
-        timeout_duration=args.timeout
+        timeout_duration=args.timeout,
+        use_compressed=USE_COMPRESSED
     )
     try:
         rclpy.spin(node)

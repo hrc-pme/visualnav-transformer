@@ -16,12 +16,11 @@ from geometry_msgs.msg import Twist
 from PIL import Image as PILImage
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
-from sensor_msgs.msg import Image, CompressedImage
+from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32MultiArray, Int32
 from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC, START_NODE_TOPIC, END_NODE_TOPIC
-from utils import load_model, msg_to_pil, to_numpy, transform_images, compressed_msg_to_pil
+from utils import load_model, msg_to_pil, to_numpy, transform_images
 from vint_train.training.train_utils import get_action
-import cv2
 
 # CONSTANTS
 TOPOMAP_IMAGES_DIR = "../topomaps"
@@ -118,7 +117,7 @@ print("Using device:", device)
 
 
 def callback_obs(msg):
-    obs_img = compressed_msg_to_pil(msg).rotate(270, expand=True)
+    obs_img = msg_to_pil(msg).rotate(270, expand=True)
 
     if 'node' in globals():
         try:
@@ -140,7 +139,7 @@ def callback_obs(msg):
 class NavigationNode(Node):
     def __init__(self):
         super().__init__("navigation_node")
-        self.create_subscription(CompressedImage, "/camera/camera/color/image_raw/compressed", callback_obs, qos_profile_sensor_data)
+        self.create_subscription(Image, "/camera/camera/color/image_raw", callback_obs, qos_profile_sensor_data)
         qos = QoSProfile(depth=10)
         self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, qos)
         self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos)

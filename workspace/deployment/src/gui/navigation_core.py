@@ -6,12 +6,16 @@ Used by GUI applications (Tkinter, PyQt5, Web) to interact with the robot.
 """
 
 import os
+import sys
 import time
 from typing import Optional, List
 import numpy as np
 import torch
 import yaml
 from PIL import Image as PILImage
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # ROS2
 import rclpy
@@ -31,10 +35,10 @@ from vint_train.training.train_utils import get_action
 
 
 # CONSTANTS
-TOPOMAP_IMAGES_DIR = "../topomaps"
-MODEL_WEIGHTS_PATH = "../model_weights"
-ROBOT_CONFIG_PATH = "../config/robot.yaml"
-MODEL_CONFIG_PATH = "../config/models.yaml"
+TOPOMAP_IMAGES_DIR = "../../topomaps"
+MODEL_WEIGHTS_PATH = "../../model_weights"
+ROBOT_CONFIG_PATH = "../../config/robot.yaml"
+MODEL_CONFIG_PATH = "../../config/models.yaml"
 
 # Load robot config
 with open(ROBOT_CONFIG_PATH, "r") as f:
