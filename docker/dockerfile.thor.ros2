@@ -1,0 +1,68 @@
+# NVIDIA Thor GPU with ROS2 Humble support
+FROM ros:humble-ros-base-jammy
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV ROS_DISTRO=humble
+ENV TZ=Asia/Taipei
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Install basic tools
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    git \
+    vim \
+    nano \
+    build-essential \
+    cmake \
+    python3-pip \
+    python3-dev \
+    python3-opencv \
+    x11-apps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ROS2 packages
+RUN apt-get update && apt-get install -y \
+    ros-${ROS_DISTRO}-cv-bridge \
+    ros-${ROS_DISTRO}-vision-opencv \
+    ros-${ROS_DISTRO}-image-transport \
+    ros-${ROS_DISTRO}-compressed-image-transport \
+    ros-${ROS_DISTRO}-geometry-msgs \
+    ros-${ROS_DISTRO}-sensor-msgs \
+    ros-${ROS_DISTRO}-std-msgs \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages
+RUN pip3 install --no-cache-dir \
+    numpy \
+    scipy \
+    opencv-python \
+    Pillow \
+    PyYAML \
+    pyzmq \
+    pickle5 \
+    einops \
+    efficientnet_pytorch \
+    prettytable \
+    matplotlib \
+    diffusers \
+    vit_pytorch \
+    wandb \
+    warmup_scheduler
+
+# Create working directory
+WORKDIR /workspace
+
+# Copy deployment packages
+COPY workspace/deployment ./deployment
+
+# Source ROS2 setup
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
+
+# Set entrypoint
+CMD ["/bin/bash"]

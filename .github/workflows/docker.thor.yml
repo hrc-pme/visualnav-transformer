@@ -1,0 +1,72 @@
+name: VisualNav Transformer Thor Docker Image
+
+on:
+  push: 
+      branches: [ dev-pomelo925 ]
+      paths:
+      - docker/dockerfile.thor
+      - docker/dockerfile.thor.ros2
+      - .github/workflows/docker.thor.yml
+
+jobs:
+  docker-thor:
+      runs-on: ubuntu-latest
+      steps:
+      # Initialization
+      - name: Repo Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+            images: ${{ secrets.DOCKERHUB_USERNAME }}/visualnav
+            tags: gpu-torch-thor
+
+      # Login Docker Hub
+      - name: Docker Hub Log-in
+        uses: docker/login-action@v3
+        with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      # Build and Push Docker image
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .                 
+          file: docker/dockerfile.thor
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          no-cache: true
+
+  docker-thor-ros2:
+      runs-on: ubuntu-latest
+      steps:
+      # Initialization
+      - name: Repo Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+            images: ${{ secrets.DOCKERHUB_USERNAME }}/visualnav
+            tags: thor-ros2-humble
+
+      # Login Docker Hub
+      - name: Docker Hub Log-in
+        uses: docker/login-action@v3
+        with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      # Build and Push Docker image
+      - name: Build and Push Docker ROS2 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .                 
+          file: docker/dockerfile.thor.ros2
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          no-cache: true

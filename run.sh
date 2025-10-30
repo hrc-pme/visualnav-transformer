@@ -7,6 +7,7 @@ usage() {
   echo "- nano         Use docker/compose.nano.yml"
   echo "- gpu-cu124    Use docker/compose.gpu.cu124.yml (CUDA 12.4)"
   echo "- gpu-cu129    Use docker/compose.gpu.cu129.yml (CUDA 12.9)"
+  echo "- thor         Use docker/compose.thor.yml (NVIDIA Thor - ARM64)"
   echo "- cpu          Use docker/compose.cpu.yml"
   echo "service:"
   echo "- deploy       Production deployment service"
@@ -24,7 +25,7 @@ SERVICE=$2
 
 # Validate platform argument
 case "$PLATFORM" in
-  nano|gpu-cu124|gpu-cu129|cpu)
+  nano|gpu-cu124|gpu-cu129|thor|cpu)
     ;;
   *)
     echo "Invalid platform: $PLATFORM"
@@ -49,6 +50,9 @@ elif [ "$PLATFORM" = "gpu-cu124" ]; then
   COMPOSE_FILE="docker/compose.gpu.cu124.yml"
 elif [ "$PLATFORM" = "gpu-cu129" ]; then
   COMPOSE_FILE="docker/compose.gpu.cu129.yml"
+elif [ "$PLATFORM" = "thor" ]; then
+  COMPOSE_FILE="docker/compose.thor.yml"
+  COMPOSE_FILE_ROS2="docker/compose.thor.ros2.yml"
 elif [ "$PLATFORM" = "cpu" ]; then
   COMPOSE_FILE="docker/compose.cpu.yml"
 fi
@@ -58,6 +62,12 @@ fi
 echo "=== [VISUALNAV] Pull & Run ==="
 echo "[VISUALNAV] Remove Containers ..."
 docker compose -p visualnav -f $COMPOSE_FILE down --volumes --remove-orphans
+
+# For thor platform, also clean ROS2 containers
+if [ "$PLATFORM" = "thor" ]; then
+  echo "[VISUALNAV] Remove Thor ROS2 Containers ..."
+  docker compose -p visualnav-ros2 -f $COMPOSE_FILE_ROS2 down --volumes --remove-orphans
+fi
 
 ## 2. environment setup  
 export DISPLAY=${DISPLAY:-:0}
@@ -77,6 +87,12 @@ cd docker
 ## 3. deployment
 echo "[VISUALNAV] Deploying $SERVICE service on $PLATFORM..."
 docker compose -p visualnav -f ../$COMPOSE_FILE up -d $SERVICE
+
+# For thor platform, also start ROS2 container
+if [ "$PLATFORM" = "thor" ]; then
+  echo "[VISUALNAV] Deploying Thor ROS2 $SERVICE service..."
+  docker compose -p visualnav-ros2 -f ../$COMPOSE_FILE_ROS2 up -d $SERVICE
+fi
 
 echo "[VISUALNAV] Entering container..."
 docker exec -it visualnav-$SERVICE-$PLATFORM bash
