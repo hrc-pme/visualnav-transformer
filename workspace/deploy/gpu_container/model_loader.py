@@ -14,7 +14,7 @@ from PIL import Image as PILImage
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 # Import model utilities (GPU-specific, no ROS dependencies)
-sys.path.append('/workspace/deployment/gpu_container')
+sys.path.append('/workspace/deploy/gpu_container')
 from utils_gpu import load_model, transform_images, to_numpy
 from vint_train.training.train_utils import get_action
 

@@ -26,7 +26,7 @@ import cv2
 # CONSTANTS
 TOPOMAP_IMAGES_DIR = "../topomaps"
 TOPOMAP_NAME = "6e-dr"
-MODEL_WEIGHTS_PATH = "../model_weights"
+MODEL_WEIGHTS_PATH = "../model"
 ROBOT_CONFIG_PATH = "../config/robot.yaml"
 MODEL_CONFIG_PATH = "../config/models.yaml"
 MODEL = "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)

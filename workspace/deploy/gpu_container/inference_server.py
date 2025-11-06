@@ -12,16 +12,16 @@ import numpy as np
 from PIL import Image as PILImage
 
 # Add paths
-sys.path.append('/workspace/deployment/gpu_container')
-sys.path.append('/workspace/deployment/shared')
-sys.path.append('/workspace/deployment/src')
+sys.path.append('/workspace/deploy/gpu_container')
+sys.path.append('/workspace/deploy/shared')
+sys.path.append('/workspace/deploy/src')
 
 from model_loader import NavigationModel
 from socket_utils import send_data, recv_data, create_response
 
 
 SOCKET_PATH = "/tmp/ipc_socket/gpu.sock"
-MODEL_CONFIG_PATH = "/workspace/deployment/config/models.yaml"
+MODEL_CONFIG_PATH = "/workspace/deploy/config/models.yaml"
 TOPOMAP_IMAGES_DIR = "/workspace/topomaps"
 
 

@@ -24,11 +24,11 @@ from scipy.spatial.transform import Rotation as R
 import cv2
 
 # Add shared utilities
-sys.path.append('/workspace/deployment/shared')
+sys.path.append('/workspace/deploy/shared')
 from socket_utils import send_data, recv_data
 
 # Topic names
-sys.path.append('/workspace/deployment/src')
+sys.path.append('/workspace/deploy/src')
 from topic_names import (
     IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC,
     CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC,
