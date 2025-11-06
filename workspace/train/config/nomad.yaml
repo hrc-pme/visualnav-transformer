@@ -1,13 +1,45 @@
-project_name: nomad
-run_name: nomad
+# ============================================================================
+# FREQUENTLY CHANGED SETTINGS - Modify these for your experiments
+# ============================================================================
+
+# Training Name (used only during training to name the output model)
+training_name: "nomad_baseline"
+
+# Dataset Configuration
+# NOTE: The training script will automatically scan and use ALL datasets in train/datasets/
+# Each dataset should have:
+#   - datasets/<name>/processed_data/<name>/  (with trajectory folders)
+#   - vint_train/data/data_splits/<name>/train/traj_names.txt
+#   - vint_train/data/data_splits/<name>/test/traj_names.txt
+# Use train/data/data.yaml to configure recording and processing for new datasets
+
+# Fine-tuning Configuration
+# Option 1: Fine-tune from official foundation model (recommended)
+use_foundation_model: true     # Use official NoMaD foundation model as starting point
+foundation_model_path: "/workspace/deployment/model_weights"  # Path to foundation models
+
+# Option 2: Fine-tune from your own previous training run
+# load_run: "nomad_baseline_2025_11_07_001234"  # Uncomment to fine-tune from a previous run
+                                                 # Model will be loaded from /workspace/model/{load_run}/
+
+# Training Hyperparameters
+batch_size: 16        # Batch size (reduce if GPU memory is limited)
+epochs: 50            # Number of training epochs
+learning_rate: 1e-4   # Initial learning rate
+num_workers: 0        # Number of data loading workers (set to 0 to avoid multiprocessing issues)
+
+# Project Settings
+run_name: nomad        # Model run name (will be appended with timestamp)
+use_wandb: True        # Enable Weights & Biases logging (set to False to disable)
+wandb_entity: null     # WandB entity (null = use default, or specify your username/team)
+
+# ============================================================================
+# ADVANCED SETTINGS - Modify only if needed
+# ============================================================================
 
 # training setup
-use_wandb: True # set to false if you don't want to log to wandb
 train: True
-batch_size: 256
-epochs: 100
 gpu_ids: [0]
-num_workers: 12
 lr: 1e-4
 optimizer: adamw
 clipping: False
@@ -61,56 +93,13 @@ learn_angle: False
 # dataset specific parameters
 image_size: [96, 96] # width, height
 datasets:
-  recon:
-    data_folder: /home/<username>/nomad_dataset/recon
-    train: /home/<username>/data_splits/recon/train/ # path to train folder with traj_names.txt
-    test: /home/<username>/data_splits/recon/test/ # path to test folder with traj_names.txt
-    end_slack: 3 # because many trajectories end in collisions
-    goals_per_obs: 1 # how many goals are sampled per observation
+  1106_631_test:
+    data_folder: /workspace/train/datasets/1106_631_test/processed_data/1106_631_test
+    train: /workspace/train/vint_train/data/data_splits/1106_631_test/train/
+    test: /workspace/train/vint_train/data/data_splits/1106_631_test/test/
+    end_slack: 0 # adjust based on your data quality
+    goals_per_obs: 3 # 增加 goal sampling 來擴增資料
     negative_mining: True # negative mining from the ViNG paper (Shah et al.)
-  go_stanford:
-    data_folder: /home/<username>/nomad_dataset/go_stanford_cropped # datasets/stanford_go_new
-    train: /home/<username>/data_splits/go_stanford/train/
-    test: /home/<username>/data_splits/go_stanford/test/
-    end_slack: 0
-    goals_per_obs: 2 # increase dataset size
-    negative_mining: True
-  cory_hall:
-    data_folder: /home/<username>/nomad_dataset/cory_hall/
-    train: /home/<username>/data_splits/cory_hall/train/
-    test: /home/<username>/data_splits/cory_hall/test/
-    end_slack: 3 # because many trajectories end in collisions
-    goals_per_obs: 1
-    negative_mining: True
-  tartan_drive:
-    data_folder: /home/<username>/nomad_dataset/tartan_drive/
-    train: /home/<username>/data_splits/tartan_drive/train/
-    test: /home/<username>/data_splits/tartan_drive/test/
-    end_slack: 3 # because many trajectories end in collisions
-    goals_per_obs: 1
-    negative_mining: True
-  sacson:
-    data_folder: /home/<username>/nomad_dataset/sacson/
-    train: /home/<username>/data_splits/sacson/train/
-    test: /home/<username>/data_splits/sacson/test/
-    end_slack: 3 # because many trajectories end in collisions
-    goals_per_obs: 1
-    negative_mining: True
-  # private datasets (uncomment if you have access)
-  # seattle:
-  #   data_folder: /home/<username>/nomad_dataset/seattle/
-  #   train: /home/<username>/data_splits/seattle/train/
-  #   test: /home/<username>/data_splits/seattle/test/
-  #   end_slack: 0
-  #   goals_per_obs: 1
-  #   negative_mining: True
-  # scand:
-  #   data_folder: /home/<username>/nomad_dataset/scand/
-  #   train: /home/<username>/data_splits/scand/train/
-  #   test: /home/<username>/data_splits/scand/test/
-  #   end_slack: 0
-  #   goals_per_obs: 1
-  #   negative_mining: True
 
 # logging stuff
 ## =0 turns off

@@ -3,7 +3,7 @@
 ROS2 Dataset Recording Script
 
 This script records ROS2 bag files for training the Visual Navigation Transformer.
-Configure the topics and bag file settings below before running.
+Configure settings in data.yaml before running.
 """
 
 import rclpy
@@ -11,34 +11,42 @@ from rclpy.node import Node
 import subprocess
 import os
 from datetime import datetime
+import yaml
 
 # ============================================================================
-# CONFIGURATION SECTION - Modify these variables as needed
+# Load Configuration from YAML
 # ============================================================================
 
-# ROS2 Topics to record
-IMAGE_TOPIC = "/camera/image_raw"           # Image topic (sensor_msgs/Image or sensor_msgs/CompressedImage)
-ODOM_TOPIC = "/odom"                        # Odometry topic (nav_msgs/Odometry)
+# Get the directory containing this script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(SCRIPT_DIR, "data.yaml")
 
-# Additional topics (optional)
-ADDITIONAL_TOPICS = [
-    # "/imu/data",
-    # "/cmd_vel",
-]
+# Load configuration
+try:
+    with open(CONFIG_PATH, 'r') as f:
+        config = yaml.safe_load(f)
+except FileNotFoundError:
+    print(f"Error: Configuration file not found at {CONFIG_PATH}")
+    print("Please create data.yaml with required settings.")
+    exit(1)
+
+# Extract configuration variables
+DATASET_NAME = config['dataset']['name']
+IMAGE_TOPIC = config['topics']['image']
+POSE_TOPIC = config['topics']['pose']
+ADDITIONAL_TOPICS = config['topics'].get('additional', [])
+
+COMPRESSION_MODE = config['recording']['compression_mode']
+COMPRESSION_FORMAT = config['recording']['compression_format']
+STORAGE_TYPE = config['recording']['storage_type']
 
 # ROS2 Bag output directory
-# Bags will be saved in workspace/train/rosbags/
 BAG_OUTPUT_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "../rosbags"
+    SCRIPT_DIR,
+    "../datasets",
+    DATASET_NAME,
+    "rosbags"
 )
-
-# Dataset name (used for bag file naming)
-DATASET_NAME = "my_dataset"
-
-# Recording settings
-COMPRESSION_MODE = "zstd"  # Options: "none", "zstd", "lz4"
-STORAGE_TYPE = "sqlite3"   # Options: "sqlite3", "mcap"
 
 # ============================================================================
 # END CONFIGURATION SECTION
@@ -65,7 +73,7 @@ class DatasetRecorder(Node):
     def start_recording(self):
         """Start recording ROS2 bag."""
         # Build topic list
-        topics = [IMAGE_TOPIC, ODOM_TOPIC] + ADDITIONAL_TOPICS
+        topics = [IMAGE_TOPIC, POSE_TOPIC] + ADDITIONAL_TOPICS
         topics_str = " ".join(topics)
         
         # Build ros2 bag record command
@@ -77,6 +85,7 @@ class DatasetRecorder(Node):
         
         if COMPRESSION_MODE != "none":
             cmd.extend(["--compression-mode", COMPRESSION_MODE])
+            cmd.extend(["--compression-format", COMPRESSION_FORMAT])
         
         cmd.extend(topics)
         
@@ -101,13 +110,13 @@ def main(args=None):
     print("\n" + "="*70)
     print("ROS2 Dataset Recorder for Visual Navigation Transformer")
     print("="*70)
-    print(f"\nConfiguration:")
+    print(f"\nConfiguration (from data.yaml):")
     print(f"  Image Topic:    {IMAGE_TOPIC}")
-    print(f"  Odometry Topic: {ODOM_TOPIC}")
+    print(f"  Pose Topic:     {POSE_TOPIC}")
     print(f"  Additional:     {ADDITIONAL_TOPICS if ADDITIONAL_TOPICS else 'None'}")
     print(f"  Output Dir:     {BAG_OUTPUT_DIR}")
     print(f"  Dataset Name:   {DATASET_NAME}")
-    print(f"  Compression:    {COMPRESSION_MODE}")
+    print(f"  Compression:    {COMPRESSION_MODE} ({COMPRESSION_FORMAT})")
     print(f"  Storage:        {STORAGE_TYPE}")
     print("="*70 + "\n")
     

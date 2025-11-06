@@ -1,0 +1,157 @@
+_wandb:
+    value:
+        cli_version: 0.21.3
+        e:
+            8wwyxiurn0gjng6vcbedd0yx99612rsz:
+                codePath: train.py
+                codePathLocal: train.py
+                email: yoseph.huang@gmail.com
+                executable: /usr/bin/python3
+                host: hrc-System-Product-Name
+                os: Linux-6.8.0-86-generic-x86_64-with-glibc2.35
+                program: /workspace/train/train.py
+                python: CPython 3.10.12
+                root: /workspace/train
+                startedAt: "2025-11-06T16:58:05.269648Z"
+                writerId: 8wwyxiurn0gjng6vcbedd0yx99612rsz
+        m: []
+        python_version: 3.10.12
+        t:
+            "1":
+                - 1
+                - 41
+                - 49
+                - 83
+            "2":
+                - 1
+                - 41
+                - 49
+                - 83
+            "3":
+                - 3
+                - 17
+            "4": 3.10.12
+            "5": 0.21.3
+            "12": 0.21.3
+            "13": linux-x86_64
+action:
+    value:
+        max_dist_cat: 10
+        min_dist_cat: 0
+alpha:
+    value: 0.5
+batch_size:
+    value: 16
+clipping:
+    value: false
+close_far_threshold:
+    value: 10
+context_size:
+    value: 2
+context_type:
+    value: temporal
+cyclic_period:
+    value: 10
+datasets:
+    value:
+        1106_631_test:
+            data_folder: /workspace/train/datasets/1106_631_test/processed_data/1106_631_test
+            end_slack: 0
+            goals_per_obs: 3
+            negative_mining: true
+            test: /workspace/train/vint_train/data/data_splits/1106_631_test/test/
+            train: /workspace/train/vint_train/data/data_splits/1106_631_test/train/
+default_dataset_params:
+    value:
+        end_slack: 0
+        goals_per_obs: 3
+        negative_mining: true
+distance:
+    value:
+        max_dist_cat: 20
+        min_dist_cat: 0
+epochs:
+    value: 30
+eval_fraction:
+    value: 0.25
+eval_freq:
+    value: 1
+foundation_model_path:
+    value: /workspace/deployment/model_weights
+goal_type:
+    value: image
+gpu_ids:
+    value:
+        - 0
+image_log_freq:
+    value: 1000
+image_size:
+    value:
+        - 85
+        - 64
+late_fusion:
+    value: false
+learn_angle:
+    value: true
+learning_rate:
+    value: "5e-4"
+len_traj_pred:
+    value: 5
+lr:
+    value: "5e-4"
+max_norm:
+    value: 1
+mha_ff_dim_factor:
+    value: 4
+mha_num_attention_heads:
+    value: 4
+mha_num_attention_layers:
+    value: 4
+model_type:
+    value: vint
+normalize:
+    value: true
+num_images_log:
+    value: 8
+num_workers:
+    value: 0
+obs_encoder:
+    value: efficientnet-b0
+obs_encoding_size:
+    value: 512
+optimizer:
+    value: adamw
+pairwise_test_freq:
+    value: 0
+plateau_factor:
+    value: 0.5
+plateau_patience:
+    value: 3
+print_log_freq:
+    value: 100
+project_folder:
+    value: /workspace/model/vint_baseline_2025_11_07_00_58_04
+run_name:
+    value: vint_baseline_2025_11_07_00_58_04
+scheduler:
+    value: cosine
+seed:
+    value: 0
+train:
+    value: true
+training_name:
+    value: vint_baseline
+use_foundation_model:
+    value: true
+use_pretrained:
+    value: true
+use_wandb:
+    value: true
+wandb_entity:
+    value: null
+wandb_log_freq:
+    value: 10
+warmup:
+    value: true
+warmup_epochs:
+    value: 4

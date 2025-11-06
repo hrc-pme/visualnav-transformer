@@ -18,6 +18,7 @@ class ViNT(BaseModel):
         mha_num_attention_heads: Optional[int] = 2,
         mha_num_attention_layers: Optional[int] = 2,
         mha_ff_dim_factor: Optional[int] = 4,
+        use_pretrained: Optional[bool] = True,  # NEW: use ImageNet pretrained weights
     ) -> None:
         """
         ViNT class: uses a Transformer-based architecture to encode (current and past) visual observations 
@@ -30,6 +31,7 @@ class ViNT(BaseModel):
             obs_encoder (str): name of the EfficientNet architecture to use for encoding observations (ex. "efficientnet-b0")
             obs_encoding_size (int): size of the encoding of the observation images
             goal_encoding_size (int): size of the encoding of the goal images
+            use_pretrained (bool): whether to use ImageNet pretrained weights for EfficientNet
         """
         super(ViNT, self).__init__(context_size, len_traj_pred, learn_angle)
         self.obs_encoding_size = obs_encoding_size
@@ -37,11 +39,19 @@ class ViNT(BaseModel):
 
         self.late_fusion = late_fusion
         if obs_encoder.split("-")[0] == "efficientnet":
-            self.obs_encoder = EfficientNet.from_name(obs_encoder, in_channels=3) # context
+            # Load EfficientNet with or without pretrained weights
+            if use_pretrained:
+                self.obs_encoder = EfficientNet.from_pretrained(obs_encoder, in_channels=3) # context
+            else:
+                self.obs_encoder = EfficientNet.from_name(obs_encoder, in_channels=3) # context
             self.num_obs_features = self.obs_encoder._fc.in_features
             if self.late_fusion:
-                self.goal_encoder = EfficientNet.from_name("efficientnet-b0", in_channels=3)
+                if use_pretrained:
+                    self.goal_encoder = EfficientNet.from_pretrained("efficientnet-b0", in_channels=3)
+                else:
+                    self.goal_encoder = EfficientNet.from_name("efficientnet-b0", in_channels=3)
             else:
+                # For early fusion (obs+goal), can't use pretrained weights with 6 channels
                 self.goal_encoder = EfficientNet.from_name("efficientnet-b0", in_channels=6) # obs+goal
             self.num_goal_features = self.goal_encoder._fc.in_features
         else:

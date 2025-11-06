@@ -1,0 +1,53 @@
+# =============================================================================
+# Dataset Configuration for ROS2 Data Recording and Processing
+# =============================================================================
+# This configuration file is shared between:
+#   - dataset_record.py (ROS2 bag recording)
+#   - dataset_train_format.py (bag to training format conversion)
+# =============================================================================
+
+# Dataset Information
+dataset:
+  name: "testing_22"                        # Dataset name (used for directory structure)
+  description: "Visual navigation dataset"  # Optional description
+
+# ROS2 Topic Configuration
+topics:
+  image: "/camera/camera/color/image_raw/compressed"  # Image topic (CompressedImage or Image)
+  pose: "/relative_pose_stamped"                       # Pose topic (PoseStamped or Odometry)
+  additional: []                                       # Additional topics to record (optional)
+    # - "/imu/data"
+    # - "/cmd_vel"
+
+# Image Processing Settings
+image:
+  size: [160, 120]                          # Target image size [width, height]
+  compressed: true                          # Whether image topic is compressed (sensor_msgs/CompressedImage)
+
+# Recording Settings (for dataset_record.py)
+recording:
+  compression_mode: "file"                  # Options: "none", "file", "message"
+  compression_format: "zstd"                # Options: "zstd", "fake_comp"
+  storage_type: "sqlite3"                   # Options: "sqlite3", "mcap"
+
+# Processing Settings (for dataset_train_format.py)
+processing:
+  sample_rate: 4.0                          # Sampling rate in Hz
+  angular_offset: 0.0                       # Angular offset for odometry (radians)
+  train_test_split: 0.8                     # Train/test split ratio (0.8 = 80% train)
+  
+  # Trajectory Filtering
+  filter_backwards: true                    # Remove backward motion segments
+  start_slack: 0                            # Points to ignore at trajectory start
+  end_slack: 3                              # Points to ignore at trajectory end
+
+# Training Settings (for ViNT training)
+training:
+  metric_waypoint_spacing: 0.25             # Average spacing between waypoints in meters
+                                            # Adjust based on your robot's actual movement speed
+
+# Directory Structure (automatically generated based on dataset name)
+# paths:
+#   rosbags: "train/datasets/{dataset_name}/rosbags/"
+#   processed: "train/datasets/{dataset_name}/processed_data/{dataset_name}/"
+#   splits: "train/vint_train/data/data_splits/{dataset_name}/"

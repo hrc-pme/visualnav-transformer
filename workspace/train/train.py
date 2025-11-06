@@ -5,6 +5,7 @@ import numpy as np
 import yaml
 import time
 import pdb
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -16,6 +17,24 @@ from warmup_scheduler import GradualWarmupScheduler
 
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.optimization import get_scheduler
+
+# ============================================================================
+# CONFIGURATION - Modify these constants as needed
+# ============================================================================
+
+# Config file path
+CONFIG_FILE = "config/vint.yaml"
+
+# W&B Entity (change this to your wandb entity)
+# Set to None to use your default entity, or specify your wandb username/team
+WANDB_ENTITY = None  # Will use your logged-in account's default entity
+
+# Datasets directory
+DATASETS_DIR = "datasets"
+
+# ============================================================================
+# END CONFIGURATION
+# ============================================================================
 
 """
 IMPORT YOUR MODEL HERE
@@ -36,7 +55,168 @@ from vint_train.training.train_eval_loop import (
 )
 
 
+def find_all_datasets(datasets_dir=DATASETS_DIR):
+    """
+    Find all valid datasets in the datasets directory.
+    A valid dataset must have:
+    1. A processed_data subdirectory
+    2. At least one trajectory in processed_data/<dataset_name>/
+    
+    Returns:
+        dict: {dataset_name: dataset_info_dict}
+    """
+    datasets_path = Path(datasets_dir)
+    if not datasets_path.exists():
+        print(f"⚠️  Datasets directory {datasets_dir} does not exist!")
+        return {}
+    
+    valid_datasets = {}
+    
+    for item in datasets_path.iterdir():
+        if not item.is_dir():
+            continue
+            
+        dataset_name = item.name
+        processed_data_path = item / "processed_data" / dataset_name
+        
+        # Check if processed_data exists and has content
+        if not processed_data_path.exists():
+            print(f"⚠️  Skipping {dataset_name}: no processed_data directory")
+            continue
+        
+        # Count trajectories (subdirectories in processed_data)
+        trajectories = [d for d in processed_data_path.iterdir() if d.is_dir()]
+        
+        if len(trajectories) == 0:
+            print(f"⚠️  Skipping {dataset_name}: processed_data is empty")
+            continue
+        
+        # Check if data splits exist
+        train_split = Path(f"vint_train/data/data_splits/{dataset_name}/train/traj_names.txt")
+        test_split = Path(f"vint_train/data/data_splits/{dataset_name}/test/traj_names.txt")
+        
+        if not (train_split.exists() and test_split.exists()):
+            print(f"⚠️  Skipping {dataset_name}: data splits not found")
+            continue
+        
+        valid_datasets[dataset_name] = {
+            'processed_data_path': str(processed_data_path),
+            'train_split': str(train_split.parent),
+            'test_split': str(test_split.parent),
+            'num_trajectories': len(trajectories)
+        }
+        
+        print(f"✅ Found valid dataset: {dataset_name} ({len(trajectories)} trajectories)")
+    
+    return valid_datasets
+
+
+def build_datasets_config(valid_datasets, base_config):
+    """
+    Build the datasets configuration from discovered datasets.
+    
+    Args:
+        valid_datasets: dict from find_all_datasets()
+        base_config: base configuration dict
+    
+    Returns:
+        dict: datasets configuration for the config
+    """
+    datasets_config = {}
+    
+    # Get default parameters
+    default_params = base_config.get('default_dataset_params', {})
+    
+    for dataset_name, info in valid_datasets.items():
+        datasets_config[dataset_name] = {
+            'data_folder': os.path.abspath(info['processed_data_path']),
+            'train': os.path.abspath(info['train_split']) + '/',
+            'test': os.path.abspath(info['test_split']) + '/',
+            'end_slack': default_params.get('end_slack', 0),
+            'goals_per_obs': default_params.get('goals_per_obs', 3),
+            'negative_mining': default_params.get('negative_mining', True),
+        }
+    
+    return datasets_config
+
+
+def ensure_datasets_in_config(dataset_names, datasets_dir=DATASETS_DIR, default_waypoint_spacing=0.25):
+    """
+    Ensure all discovered datasets are in data_config.yaml.
+    Reads metric_waypoint_spacing from each dataset's data.yaml if available.
+    
+    Args:
+        dataset_names: List of dataset names
+        datasets_dir: Directory containing datasets
+        default_waypoint_spacing: Default metric waypoint spacing for new datasets
+    """
+    data_config_path = os.path.join("vint_train", "data", "data_config.yaml")
+    
+    # Load existing config
+    with open(data_config_path, 'r') as f:
+        data_config = yaml.safe_load(f)
+    
+    # Check which datasets are missing
+    modified = False
+    for dataset_name in dataset_names:
+        if dataset_name not in data_config:
+            # Try to read metric_waypoint_spacing from dataset's data.yaml
+            waypoint_spacing = default_waypoint_spacing
+            dataset_config_path = os.path.join(datasets_dir, dataset_name, "data.yaml")
+            if os.path.exists(dataset_config_path):
+                try:
+                    with open(dataset_config_path, 'r') as f:
+                        dataset_config = yaml.safe_load(f)
+                        waypoint_spacing = dataset_config.get('training', {}).get('metric_waypoint_spacing', default_waypoint_spacing)
+                except Exception as e:
+                    print(f"⚠️  Could not read {dataset_config_path}: {e}")
+            
+            print(f"📝 Adding {dataset_name} to data_config.yaml (waypoint_spacing: {waypoint_spacing}m)")
+            data_config[dataset_name] = {
+                'metric_waypoint_spacing': waypoint_spacing
+            }
+            modified = True
+    
+    # Save if modified
+    if modified:
+        with open(data_config_path, 'w') as f:
+            yaml.safe_dump(data_config, f, default_flow_style=False, sort_keys=False)
+        print(f"✅ Updated {data_config_path}\n")
+    
+    return modified
+
+
 def main(config):
+    # Auto-discover all datasets
+    print("\n" + "="*80)
+    print("SCANNING FOR DATASETS")
+    print("="*80)
+    
+    valid_datasets = find_all_datasets(DATASETS_DIR)
+    
+    if not valid_datasets:
+        print("\n❌ No valid datasets found! Please add datasets to the datasets/ directory.")
+        print("   Each dataset should have:")
+        print("   - datasets/<name>/processed_data/<name>/  (with trajectory folders)")
+        print("   - vint_train/data/data_splits/<name>/train/traj_names.txt")
+        print("   - vint_train/data/data_splits/<name>/test/traj_names.txt")
+        return
+    
+    print(f"\n✅ Found {len(valid_datasets)} valid dataset(s)")
+    print("="*80 + "\n")
+    
+    # Ensure all datasets are in data_config.yaml
+    all_dataset_names = list(valid_datasets.keys())
+    ensure_datasets_in_config(all_dataset_names)
+    
+    # Build datasets configuration from auto-discovered datasets
+    config['datasets'] = build_datasets_config(valid_datasets, config)
+    
+    # Update dataset_name to include all datasets
+    config['dataset_name'] = '+'.join(all_dataset_names)
+    
+    print(f"Training on datasets: {', '.join(all_dataset_names)}\n")
+    
     assert config["distance"]["min_dist_cat"] < config["distance"]["max_dist_cat"]
     assert config["action"]["min_dist_cat"] < config["action"]["max_dist_cat"]
 
@@ -129,7 +309,7 @@ def main(config):
         shuffle=True,
         num_workers=config["num_workers"],
         drop_last=False,
-        persistent_workers=True,
+        persistent_workers=(config["num_workers"] > 0),
     )
 
     if "eval_batch_size" not in config:
@@ -164,6 +344,7 @@ def main(config):
             mha_num_attention_heads=config["mha_num_attention_heads"],
             mha_num_attention_layers=config["mha_num_attention_layers"],
             mha_ff_dim_factor=config["mha_ff_dim_factor"],
+            use_pretrained=config.get("use_pretrained", True),  # Default to True for pretrained weights
         )
     elif config["model_type"] == "nomad":
         if config["vision_encoder"] == "nomad_vint":
@@ -280,14 +461,48 @@ def main(config):
             )
 
     current_epoch = 0
+    
+    # Load model weights
     if "load_run" in config:
-        load_project_folder = os.path.join("logs", config["load_run"])
-        print("Loading model from ", load_project_folder)
+        # Option 1: Load from previous training run (fine-tuning your own model)
+        load_project_folder = os.path.join("/workspace/model", config["load_run"])
+        print(f"🔄 Loading model from {load_project_folder} for fine-tuning...")
         latest_path = os.path.join(load_project_folder, "latest.pth")
-        latest_checkpoint = torch.load(latest_path) #f"cuda:{}" if torch.cuda.is_available() else "cpu")
+        if not os.path.exists(latest_path):
+            print(f"❌ Error: Checkpoint not found at {latest_path}")
+            print(f"   Available models in /workspace/model/:")
+            if os.path.exists("/workspace/model"):
+                for item in os.listdir("/workspace/model"):
+                    print(f"     - {item}")
+            sys.exit(1)
+        latest_checkpoint = torch.load(latest_path, weights_only=False)
         load_model(model, config["model_type"], latest_checkpoint)
         if "epoch" in latest_checkpoint:
             current_epoch = latest_checkpoint["epoch"] + 1
+        print(f"✅ Loaded checkpoint from epoch {current_epoch - 1}")
+    
+    elif config.get("use_foundation_model", False):
+        # Option 2: Load official foundation model (recommended for first training)
+        foundation_path = config.get("foundation_model_path", "/workspace/deployment/model_weights")
+        model_type = config["model_type"]
+        foundation_file = os.path.join(foundation_path, f"{model_type}.pth")
+        
+        if os.path.exists(foundation_file):
+            print(f"🎯 Loading official {model_type.upper()} foundation model from {foundation_file}...")
+            foundation_checkpoint = torch.load(foundation_file, map_location="cpu", weights_only=False)
+            load_model(model, model_type, foundation_checkpoint)
+            print(f"✅ Successfully loaded {model_type.upper()} foundation model for fine-tuning")
+            print(f"   Starting training from epoch 0 with pretrained weights")
+        else:
+            print(f"⚠️  Foundation model not found at {foundation_file}")
+            print(f"   Available foundation models in {foundation_path}:")
+            if os.path.exists(foundation_path):
+                for item in os.listdir(foundation_path):
+                    if item.endswith(".pth"):
+                        print(f"     - {item}")
+            print(f"   Training will start from scratch with ImageNet pretrained EfficientNet only")
+    else:
+        print(f"🆕 Training from scratch with ImageNet pretrained EfficientNet backbone")
 
     # Multi-GPU
     if len(config["gpu_ids"]) > 1:
@@ -353,50 +568,66 @@ def main(config):
 if __name__ == "__main__":
     torch.multiprocessing.set_start_method("spawn")
 
-    parser = argparse.ArgumentParser(description="Visual Navigation Transformer")
-
-    # project setup
+    # Load config from constant variable (can be overridden by command line)
+    parser = argparse.ArgumentParser(description="Visual Navigation Transformer - Auto Multi-Dataset Training")
     parser.add_argument(
         "--config",
         "-c",
-        default="config/vint.yaml",
+        default=CONFIG_FILE,
         type=str,
-        help="Path to the config file in train_config folder",
+        help="Path to the config file",
     )
     args = parser.parse_args()
 
-    with open("config/defaults.yaml", "r") as f:
-        default_config = yaml.safe_load(f)
-
-    config = default_config
-
+    # Load config file
     with open(args.config, "r") as f:
-        user_config = yaml.safe_load(f)
+        config = yaml.safe_load(f)
 
-    config.update(user_config)
-
-    config["run_name"] += "_" + time.strftime("%Y_%m_%d_%H_%M_%S")
-    config["project_folder"] = os.path.join(
-        "logs", config["project_name"], config["run_name"]
-    )
-    os.makedirs(
-        config[
-            "project_folder"
-        ],  # should error if dir already exists to avoid overwriting and old project
-    )
+    print("\n" + "="*80)
+    print("VISUAL NAVIGATION TRANSFORMER TRAINING")
+    print("="*80)
+    print(f"Config file: {args.config}")
+    print(f"Model type: {config.get('model_type', 'unknown')}")
+    
+    # Get training_name from config
+    training_name = config.get('training_name', 'unnamed_training')
+    timestamp = time.strftime("%Y_%m_%d_%H_%M_%S")
+    full_training_name = f"{training_name}_{timestamp}"
+    
+    # Update run_name to include timestamp
+    config["run_name"] = full_training_name
+    
+    # Create project folder in /workspace/model/ directory (not in train/)
+    config["project_folder"] = os.path.join("/workspace/model", full_training_name)
+    os.makedirs(config["project_folder"], exist_ok=False)
+    
+    print(f"Training name: {training_name}")
+    print(f"Model output: {config['project_folder']}")
 
     if config["use_wandb"]:
         wandb.login()
-        wandb.init(
-            project=config["project_name"],
-            settings=wandb.Settings(start_method="fork"),
-            entity="gnmv2", # TODO: change this to your wandb entity
-        )
+        # Get entity from config or use default
+        wandb_entity = config.get('wandb_entity', WANDB_ENTITY)
+        # Project name will be based on model type
+        model_type = config.get('model_type', 'vint')
+        
+        wandb_init_kwargs = {
+            'project': f"{model_type}-training",
+            'settings': wandb.Settings(start_method="fork"),
+        }
+        
+        if wandb_entity is not None:
+            wandb_init_kwargs['entity'] = wandb_entity
+        
+        wandb.init(**wandb_init_kwargs)
         wandb.save(args.config, policy="now")  # save the config file
-        wandb.run.name = config["run_name"]
+        wandb.run.name = full_training_name
         # update the wandb args with the training configurations
         if wandb.run:
             wandb.config.update(config)
 
-    print(config)
+    print("\nStarting training...")
+    print("="*80 + "\n")
+    
     main(config)
+
