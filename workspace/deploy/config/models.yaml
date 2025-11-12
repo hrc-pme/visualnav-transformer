@@ -1,6 +1,6 @@
 vint: 
   config_path: "../../train/config/vint.yaml"
-  ckpt_path: "../../model/vint_stairs_1elevator_2025_11_12_20_43_03/latest.pth"
+  ckpt_path: "../../model/vint_latest.pth"
 
 late_fusion: 
   config_path: "../../train/config/late_fusion.yaml"

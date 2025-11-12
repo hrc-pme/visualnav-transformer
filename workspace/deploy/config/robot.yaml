@@ -1,6 +1,6 @@
 # linear and angular speed limits for the robot
 max_v: 0.4 #0.4 # m/s
-max_w: 0.2 #0.8 # rad/s
+max_w: 0.4 #0.8 # rad/s
 # observation rate fo the robot
 frame_rate: 4 # Hz
 graph_rate: 0.3333 # Hz  
@@ -9,3 +9,10 @@ graph_rate: 0.3333 # Hz
 vel_teleop_topic: /cmd_vel_mux/input/teleop 
 vel_navi_topic: /stretch/cmd_vel
 vel_recovery_topic: /cmd_vel_mux/input/recovery
+
+# Navigation parameters
+topomap_name: "se1"  # Name of the topomap folder
+model: "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)
+node_range: [-1, -1]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
+z_ratio: 1  # Scale factor for z (yaw) speed
+xy_ratio: 1  # Scale factor for xy (linear) speed

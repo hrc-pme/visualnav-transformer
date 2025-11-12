@@ -26,17 +26,15 @@ import cv2
 
 # CONSTANTS
 TOPOMAP_IMAGES_DIR = "../topomaps"
-TOPOMAP_NAME = "6e-dr"
 MODEL_WEIGHTS_PATH = "../model"
 ROBOT_CONFIG_PATH = "../config/robot.yaml"
 MODEL_CONFIG_PATH = "../config/models.yaml"
-MODEL = "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)
-NODE_RANGE = [-1, -1]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
-Z_RATIO = 0.3  # scale z (yaw) speed to half
-XY_RATIO = 1
 
+# Load robot configuration
 with open(ROBOT_CONFIG_PATH, "r") as f:
     robot_config = yaml.safe_load(f)
+
+# Extract parameters from robot config
 MAX_V = robot_config["max_v"]
 MAX_W = robot_config["max_w"]
 RATE = robot_config["frame_rate"]
@@ -44,6 +42,13 @@ VEL_TOPIC = robot_config["vel_navi_topic"]
 DT = 1 / robot_config["frame_rate"]
 WAYPOINT_CONTROL_RATE = 9  # Hz for waypoint control loop
 EPS = 1e-8
+
+# Navigation parameters from robot config
+TOPOMAP_NAME = robot_config.get("topomap_name", "se1")
+MODEL = robot_config.get("model", "vint")
+NODE_RANGE = robot_config.get("node_range", [-1, -1])
+Z_RATIO = robot_config.get("z_ratio", 1)
+XY_RATIO = robot_config.get("xy_ratio", 1)
 
 # GLOBALS
 context_queue = []
@@ -327,10 +332,14 @@ def main(args: argparse.Namespace):
     closest_node = start_node  # 從指定的起始節點開始
     reached_goal = False
     start, end = -1, -1
+    
+    # 記錄收到影像的時間（用於計算延遲）
+    last_image_time = time.time()
 
     while rclpy.ok():
         loop_start_time = time.time()
         chosen_waypoint = np.zeros(4)
+        processing_delay = 0.0  # 初始化處理延遲
 
         # 如果已經到達目標，持續發布停止信號
         if reached_goal:
@@ -342,6 +351,9 @@ def main(args: argparse.Namespace):
             continue
 
         if len(context_queue) > model_params["context_size"]:
+            # 記錄開始推理的時間
+            inference_start_time = time.time()
+            
             start = max(closest_node - args.radius, start_node)  # 不能小於起始節點
             end = min(closest_node + args.radius + 1, goal_node)
 
@@ -421,6 +433,10 @@ def main(args: argparse.Namespace):
                 
                 # Publish chosen waypoint
                 node.chosen_waypoint_pub.publish(Float32MultiArray(data=chosen_waypoint.tolist()))
+            
+            # 計算處理延遲
+            inference_end_time = time.time()
+            processing_delay = inference_end_time - inference_start_time
 
         # Normalize and scale XY (linear) and Z (yaw)
         if model_params["normalize"]:
@@ -454,11 +470,13 @@ def main(args: argparse.Namespace):
         end_node_msg.data = int(goal_node)
         node.end_node_pub.publish(end_node_msg)
         
-        waypoint_str = f"[{chosen_waypoint[0]:.2f} {chosen_waypoint[1]:.2f} {chosen_waypoint[2]:.2f}]"
-        print(f"[Status] Node: {closest_node}/{goal_node} | Ref Node: {start} to {end} | Waypoint: {waypoint_str}")
+        # 改善的輸出訊息格式
+        if len(context_queue) > model_params["context_size"]:
+            waypoint_str = f"[{chosen_waypoint[0]:6.2f}, {chosen_waypoint[1]:6.2f}, {chosen_waypoint[2]:6.2f}]"
+            print(f"[{args.model}] Node: {closest_node:03d}/{goal_node:03d} | Waypoint: {waypoint_str} | Delay: {processing_delay:.3f}s")
 
         if goal_reached:
-            print("[Navigation] Goal reached. Stopping robot...")
+            print(f"[{args.model}] 🎯 GOAL REACHED! Navigation complete.")
             # 繼續循環以持續發布停止信號，而不是立即退出
             reached_goal = True
 
