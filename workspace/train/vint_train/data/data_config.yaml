@@ -64,3 +64,5 @@ stairs_elevator_afternoon:
   metric_waypoint_spacing: 0.25
 stairs_1ele_low:
   metric_waypoint_spacing: 0.25
+stairs_1elevator:
+  metric_waypoint_spacing: 0.25

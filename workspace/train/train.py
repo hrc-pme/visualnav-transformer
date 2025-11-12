@@ -5,6 +5,8 @@ import numpy as np
 import yaml
 import time
 import pdb
+import sys
+import subprocess
 from pathlib import Path
 
 import torch
@@ -53,6 +55,80 @@ from vint_train.training.train_eval_loop import (
     train_eval_loop_nomad,
     load_model,
 )
+
+
+# ============================================================================
+# Model Download Functions
+# ============================================================================
+
+# Foundation model download URLs
+FOUNDATION_MODEL_URLS = {
+    "gnm": "https://drive.google.com/file/d/1bzCPd_OsXjS2aGPTQladbI8ImxLZwrQh/view?usp=drive_link",
+    "vint": "https://drive.google.com/file/d/1ckrceGb5m_uUtq3pD8KHwnqtJgPl6kF5/view?usp=drive_link", 
+    "nomad": "https://drive.google.com/file/d/1YJhkkMJAYOiKNyCaelbS_alpUpAJsOUb/view?usp=drive_link"
+}
+
+def extract_google_drive_id(url):
+    """從 Google Drive URL 提取檔案 ID"""
+    if "drive.google.com" in url:
+        if "/file/d/" in url:
+            return url.split("/file/d/")[1].split("/")[0]
+    return None
+
+def download_model_from_google_drive(file_id, destination):
+    """從 Google Drive 下載模型檔案"""
+    # 使用 gdown 下載 Google Drive 檔案
+    try:
+        import gdown
+        download_url = f"https://drive.google.com/uc?id={file_id}"
+        print(f"📥 Downloading model to {destination}...")
+        gdown.download(download_url, destination, quiet=False)
+        return True
+    except ImportError:
+        print("⚠️  gdown not found. Installing gdown...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
+            import gdown
+            download_url = f"https://drive.google.com/uc?id={file_id}"
+            print(f"📥 Downloading model to {destination}...")
+            gdown.download(download_url, destination, quiet=False)
+            return True
+        except Exception as e:
+            print(f"❌ Failed to install gdown or download file: {e}")
+            return False
+    except Exception as e:
+        print(f"❌ Failed to download model: {e}")
+        return False
+
+def ensure_foundation_model_exists(model_name, model_path):
+    """檢查 foundation model 是否存在，如果不存在則自動下載"""
+    if os.path.exists(model_path):
+        print(f"✓ Foundation model {model_name} already exists at {model_path}")
+        return True
+    
+    print(f"⚠️  Foundation model {model_name} not found at {model_path}")
+    
+    # 確保模型目錄存在
+    model_dir = os.path.dirname(model_path)
+    os.makedirs(model_dir, exist_ok=True)
+    print(f"📁 Created directory: {model_dir}")
+    
+    if model_name in FOUNDATION_MODEL_URLS:
+        file_id = extract_google_drive_id(FOUNDATION_MODEL_URLS[model_name])
+        if file_id:
+            print(f"🌐 Downloading {model_name.upper()} foundation model from Google Drive...")
+            if download_model_from_google_drive(file_id, model_path):
+                print(f"✅ Successfully downloaded {model_name.upper()} foundation model")
+                return True
+            else:
+                print(f"❌ Failed to download {model_name.upper()} foundation model")
+                return False
+        else:
+            print(f"❌ Invalid Google Drive URL for {model_name}")
+            return False
+    else:
+        print(f"❌ No download URL configured for model: {model_name}")
+        return False
 
 
 def find_all_datasets(datasets_dir=DATASETS_DIR):
@@ -483,24 +559,26 @@ def main(config):
     
     elif config.get("use_foundation_model", False):
         # Option 2: Load official foundation model (recommended for first training)
-        foundation_path = config.get("foundation_model_path", "/workspace/deployment/model_weights")
+        foundation_path = config.get("foundation_model_path", "/workspace/model")
         model_type = config["model_type"]
         foundation_file = os.path.join(foundation_path, f"{model_type}.pth")
         
-        if os.path.exists(foundation_file):
-            print(f"🎯 Loading official {model_type.upper()} foundation model from {foundation_file}...")
-            foundation_checkpoint = torch.load(foundation_file, map_location="cpu", weights_only=False)
-            load_model(model, model_type, foundation_checkpoint)
-            print(f"✅ Successfully loaded {model_type.upper()} foundation model for fine-tuning")
-            print(f"   Starting training from epoch 0 with pretrained weights")
-        else:
-            print(f"⚠️  Foundation model not found at {foundation_file}")
-            print(f"   Available foundation models in {foundation_path}:")
-            if os.path.exists(foundation_path):
-                for item in os.listdir(foundation_path):
-                    if item.endswith(".pth"):
-                        print(f"     - {item}")
-            print(f"   Training will start from scratch with ImageNet pretrained EfficientNet only")
+        # 嘗試下載 foundation model（如果不存在）
+        print(f"\n🔍 Checking for {model_type.upper()} foundation model...")
+        if not ensure_foundation_model_exists(model_type, foundation_file):
+            print(f"\n❌ ERROR: Failed to download or locate foundation model")
+            print(f"   Attempted path: {foundation_file}")
+            print(f"\n💡 Available options:")
+            print(f"   1. Manually download {model_type}.pth and place it in: {foundation_path}/")
+            print(f"   2. Check your internet connection and try again")
+            print(f"   3. Set use_foundation_model: false in config to train from scratch")
+            raise FileNotFoundError(f"Foundation model {model_type}.pth could not be downloaded or found")
+        
+        print(f"🎯 Loading official {model_type.upper()} foundation model from {foundation_file}...")
+        foundation_checkpoint = torch.load(foundation_file, map_location="cpu", weights_only=False)
+        load_model(model, model_type, foundation_checkpoint)
+        print(f"✅ Successfully loaded {model_type.upper()} foundation model for fine-tuning")
+        print(f"   Starting training from epoch 0 with pretrained weights")
     else:
         print(f"🆕 Training from scratch with ImageNet pretrained EfficientNet backbone")
 

@@ -16,7 +16,7 @@ training_name: "vint_stairs_1elevator"
 # Fine-tuning Configuration
 # Option 1: Fine-tune from official foundation models (recommended)
 use_foundation_model: true     # Use official ViNT/GNM/NoMaD foundation model as starting point
-foundation_model_path: "/workspace/deployment/model_weights"  # Path to foundation models
+foundation_model_path: "/workspace/model"  # Path to foundation models (e.g., vint.pth, gnm.pth, nomad.pth)
 
 # Option 2: Fine-tune from your own previous training run
 # load_run: "vint_baseline_2025_11_07_001234"  # Uncomment to fine-tune from a previous run
@@ -24,8 +24,8 @@ foundation_model_path: "/workspace/deployment/model_weights"  # Path to foundati
                                                 # Note: use_foundation_model will be ignored if load_run is set
 
 # Training Hyperparameters
-batch_size: 16        # Batch size (reduce if GPU memory is limited)
-epochs: 30            # Number of training epochs
+batch_size: 32        # Batch size (reduce if GPU memory is limited)
+epochs: 50            # Number of training epochs
 learning_rate: 5e-4   # Initial learning rate
 num_workers: 0        # Number of data loading workers (set to 0 to avoid multiprocessing issues)
 
@@ -68,7 +68,7 @@ normalize: True
 
 # context
 context_type: temporal
-context_size: 2  # Reduced from 5 for small datasets
+context_size: 5  # Reduced from 5 for small datasets
 # tradeoff between action and distance prediction loss
 alpha: 0.5
 

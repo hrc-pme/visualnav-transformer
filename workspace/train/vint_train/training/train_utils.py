@@ -123,15 +123,20 @@ def _log_data(
     Log data to wandb and print to console.
     """
     data_log = {}
+    
+    # Print header once for this batch
+    if i % print_log_freq == 0 and print_log_freq != 0:
+        print(f"\n----- [Epoch {epoch}] [Batch {i}/{num_batches - 1}] -----")
+    
     for key, logger in loggers.items():
         if use_latest:
             data_log[logger.full_name()] = logger.latest()
             if i % print_log_freq == 0 and print_log_freq != 0:
-                print(f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}")
+                print(f"  {logger.display()}")
         else:
             data_log[logger.full_name()] = logger.average()
             if i % print_log_freq == 0 and print_log_freq != 0:
-                print(f"(epoch {epoch}) {logger.full_name()} {logger.average()}")
+                print(f"  {logger.full_name()}: {logger.average()}")
 
     if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
         wandb.log(data_log, commit=wandb_increment_step)
@@ -693,11 +698,15 @@ def train_nomad(
                         logger = loggers[key]
                         logger.log_data(value.item())
             
+                # Print header once for this batch
+                if i % print_log_freq == 0 and print_log_freq != 0:
+                    print(f"\n----- [Epoch {epoch}] [Batch {i}/{num_batches - 1}] -----")
+                
                 data_log = {}
                 for key, logger in loggers.items():
                     data_log[logger.full_name()] = logger.latest()
                     if i % print_log_freq == 0 and print_log_freq != 0:
-                        print(f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}")
+                        print(f"  {logger.display()}")
 
                 if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
                     wandb.log(data_log, commit=True)
@@ -896,11 +905,13 @@ def evaluate_nomad(
                         logger = loggers[key]
                         logger.log_data(value.item())
             
+                # Print header once for this batch
+                print(f"\n----- [Epoch {epoch}] [Batch {i}/{num_batches - 1}] -----")
+                
                 data_log = {}
                 for key, logger in loggers.items():
                     data_log[logger.full_name()] = logger.latest()
-                    if i % print_log_freq == 0 and print_log_freq != 0:
-                        print(f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}")
+                    print(f"  {logger.display()}")
 
                 if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
                     wandb.log(data_log, commit=True)
