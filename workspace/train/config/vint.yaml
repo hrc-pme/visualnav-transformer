@@ -3,7 +3,7 @@
 # ============================================================================
 
 # Training Name (used only during training to name the output model)
-training_name: "vint_baseline"
+training_name: "vint_stairs_1elevator"
 
 # Dataset Configuration
 # NOTE: The training script will automatically scan and use ALL datasets in train/datasets/

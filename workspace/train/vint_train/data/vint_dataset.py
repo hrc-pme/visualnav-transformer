@@ -109,7 +109,8 @@ class ViNT_Dataset(Dataset):
         assert (
             self.dataset_name in all_data_config
         ), f"Dataset {self.dataset_name} not found in data_config.yaml"
-        dataset_names = list(all_data_config.keys())
+        # Get dataset names (exclude non-dataset keys like 'action_stats')
+        dataset_names = [k for k in all_data_config.keys() if k != 'action_stats']
         dataset_names.sort()
         # use this index to retrieve the dataset name from the data_config.yaml
         self.dataset_index = dataset_names.index(self.dataset_name)

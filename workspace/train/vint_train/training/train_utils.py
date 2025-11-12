@@ -117,6 +117,7 @@ def _log_data(
     print_log_freq=1,
     image_log_freq=1,
     wandb_increment_step=True,
+    save_visualize=False,
 ):
     """
     Log data to wandb and print to console.
@@ -135,7 +136,8 @@ def _log_data(
     if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
         wandb.log(data_log, commit=wandb_increment_step)
 
-    if image_log_freq != 0 and i % image_log_freq == 0:
+    # Only save visualizations if save_visualize is True (to save disk space)
+    if save_visualize and image_log_freq != 0 and i % image_log_freq == 0:
         visualize_dist_pred(
             to_numpy(obs_image),
             to_numpy(goal_image),
@@ -180,6 +182,7 @@ def train(
     num_images_log: int = 8,
     use_wandb: bool = True,
     use_tqdm: bool = True,
+    save_visualize: bool = False,
 ):
     """
     Train the model for one epoch.
@@ -304,6 +307,7 @@ def train(
             use_wandb=use_wandb,
             mode="train",
             use_latest=True,
+            save_visualize=save_visualize,
         )
 
 
@@ -322,7 +326,7 @@ def evaluate(
     use_wandb: bool = True,
     eval_fraction: float = 1.0,
     use_tqdm: bool = True,
-
+    save_visualize: bool = False,
 ):
     """
     Evaluate the model on the given evaluation dataset.
@@ -437,6 +441,7 @@ def evaluate(
         mode=eval_type,
         use_latest=False,
         wandb_increment_step=False,
+        save_visualize=save_visualize,
     )
 
     return dist_loss_logger.average(), action_loss_logger.average(), total_loss_logger.average()

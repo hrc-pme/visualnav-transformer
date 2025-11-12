@@ -48,3 +48,19 @@ testing:
   metric_waypoint_spacing: 0.25
 testing_22:
   metric_waypoint_spacing: 0.25
+elevator_stairs_afternoon:
+  metric_waypoint_spacing: 0.25
+1ele_stairs_flat:
+  metric_waypoint_spacing: 0.25
+stairs_1ele_high:
+  metric_waypoint_spacing: 0.25
+1ele_stairs_high:
+  metric_waypoint_spacing: 0.25
+stairs_1ele_flat:
+  metric_waypoint_spacing: 0.25
+1ele_stairs_low:
+  metric_waypoint_spacing: 0.25
+stairs_elevator_afternoon:
+  metric_waypoint_spacing: 0.25
+stairs_1ele_low:
+  metric_waypoint_spacing: 0.25

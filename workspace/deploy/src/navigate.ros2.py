@@ -12,7 +12,7 @@ import torch
 import yaml
 from cv_bridge import CvBridge
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
 from PIL import Image as PILImage
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
@@ -21,6 +21,7 @@ from std_msgs.msg import Bool, Float32MultiArray, Int32
 from topic_names import IMAGE_TOPIC, SAMPLED_ACTIONS_TOPIC, WAYPOINT_TOPIC, CURRENT_NODE_TOPIC, CANDIDATE_WAYPOINTS_TOPIC, CHOSEN_WAYPOINT_TOPIC, START_NODE_TOPIC, END_NODE_TOPIC
 from utils import load_model, msg_to_pil, to_numpy, transform_images, compressed_msg_to_pil
 from vint_train.training.train_utils import get_action
+from scipy.spatial.transform import Rotation as R
 import cv2
 
 # CONSTANTS
@@ -40,6 +41,9 @@ MAX_V = robot_config["max_v"]
 MAX_W = robot_config["max_w"]
 RATE = robot_config["frame_rate"]
 VEL_TOPIC = robot_config["vel_navi_topic"]
+DT = 1 / robot_config["frame_rate"]
+WAYPOINT_CONTROL_RATE = 9  # Hz for waypoint control loop
+EPS = 1e-8
 
 # GLOBALS
 context_queue = []
@@ -152,7 +156,15 @@ class NavigationNode(Node):
         self.start_node_pub = self.create_publisher(Int32, START_NODE_TOPIC, qos)  # 添加 start node 發布器
         self.end_node_pub = self.create_publisher(Int32, END_NODE_TOPIC, qos)  # 添加 end node 發布器
         self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 添加速度控制發布器
+        self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", qos)  # 添加 goal pose 發布器
         self.bridge = CvBridge()
+        
+        # Waypoint to goal pose conversion variables
+        self.current_waypoint = None
+        self.reached_goal = False
+        
+        # Create waypoint control timer
+        self.create_timer(1.0 / WAYPOINT_CONTROL_RATE, self.waypoint_control_loop)
         
     def publish_zero_velocity(self):
         """發布零速度指令以停止機器人"""
@@ -165,6 +177,70 @@ class NavigationNode(Node):
         stop_cmd.angular.z = 0.0
         self.vel_pub.publish(stop_cmd)
         self.get_logger().info("Published zero velocity command to stop robot")
+    
+    def convert_waypoint_pose(self, waypoint: np.ndarray) -> PoseStamped:
+        """將 waypoint 轉換為 PoseStamped 消息"""
+        assert len(waypoint) in [2, 4], "waypoint must be 2D or 4D"
+        if len(waypoint) == 2:
+            dx, dy = waypoint
+            hx, hy = 1.0, 0.0  # 預設朝向X軸
+        else:
+            dx, dy, hx, hy = waypoint
+
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = "base_link"
+        goal_pose.pose.position.x = float(dx)
+        goal_pose.pose.position.y = float(dy)
+        goal_pose.pose.position.z = 0.0
+
+        # 使用 scipy 計算四元數 (x, y, z, w 格式)
+        rotation = R.from_euler('z', np.arctan2(hy, hx))
+        quaternion = rotation.as_quat()  # 返回 [x, y, z, w] 格式
+        goal_pose.pose.orientation.x = quaternion[0]
+        goal_pose.pose.orientation.y = quaternion[1]
+        goal_pose.pose.orientation.z = quaternion[2]
+        goal_pose.pose.orientation.w = quaternion[3]
+
+        return goal_pose
+    
+    def waypoint_control_loop(self):
+        """Waypoint to velocity control loop"""
+        if self.reached_goal:
+            # 目標達成，發布停止訊號並清除航點
+            self.publish_zero_velocity()
+            self.current_waypoint = None  # 清除航點以避免繼續處理
+            print(f"\r[Waypoint2Goal] 🎯 GOAL REACHED! Robot stopped." + " "*80, end='', flush=True)
+            return
+
+        if self.current_waypoint is not None:
+            # 發佈目標位姿
+            goal_pose = self.convert_waypoint_pose(self.current_waypoint)
+            self.goal_pub.publish(goal_pose)
+
+            # 計算速度指令（簡單比例控制器）
+            x, y = self.current_waypoint[0], self.current_waypoint[1]
+            distance = np.linalg.norm([x, y])
+            target_angle = np.arctan2(y, x)
+
+            # 線速度控制增益
+            k_v = 0.5
+            linear_vel = min(k_v * distance, MAX_V)
+
+            # 角速度控制增益
+            k_w = 1.0
+            angular_vel = np.clip(k_w * target_angle, -MAX_W, MAX_W)
+
+            twist = Twist()
+            twist.linear.x = float(linear_vel)
+            twist.angular.z = float(angular_vel)
+
+            self.vel_pub.publish(twist)
+            # 使用 \r 清除同行並輸出新的狀態訊息，加上空格填充以清除舊內容
+            print(f"\r[Waypoint2Goal] Vel: lin={linear_vel:.2f}m/s, ang={angular_vel:.2f}rad/s | Waypoint: [{x:.2f}, {y:.2f}] | Dist: {distance:.2f}m" + " "*20, end='', flush=True)
+
+        else:
+            # 靜默等待 waypoint
+            pass
 
 def main(args: argparse.Namespace):
     global context_size
@@ -354,6 +430,9 @@ def main(args: argparse.Namespace):
         waypoint_msg = Float32MultiArray(data=chosen_waypoint.tolist())
         node.waypoint_pub.publish(waypoint_msg)
         
+        # 更新 current_waypoint 供 waypoint control loop 使用
+        node.current_waypoint = chosen_waypoint
+        
         # 發布 current node
         current_node_msg = Int32()
         current_node_msg.data = int(closest_node)
@@ -362,6 +441,9 @@ def main(args: argparse.Namespace):
         # 檢查是否到達目標
         goal_reached = bool(closest_node == goal_node)
         node.reach_goal_pub.publish(Bool(data=goal_reached))
+        
+        # 更新 reached_goal 狀態供 waypoint control loop 使用
+        node.reached_goal = goal_reached
 
         # 持續發布 start 和 end node 資訊（確保GUI能收到）
         start_node_msg = Int32()
@@ -377,8 +459,6 @@ def main(args: argparse.Namespace):
 
         if goal_reached:
             print("[Navigation] Goal reached. Stopping robot...")
-            # 持續發送零速度指令停止機器人
-            node.publish_zero_velocity()
             # 繼續循環以持續發布停止信號，而不是立即退出
             reached_goal = True
 

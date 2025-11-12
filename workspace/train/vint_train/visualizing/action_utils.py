@@ -74,7 +74,8 @@ def visualize_traj_pred(
         == len(batch_label_waypoints)
     )
 
-    dataset_names = list(data_config.keys())
+    # Get dataset names (exclude non-dataset keys like 'action_stats')
+    dataset_names = [k for k in data_config.keys() if k != 'action_stats']
     dataset_names.sort()
 
     batch_size = batch_obs_images.shape[0]

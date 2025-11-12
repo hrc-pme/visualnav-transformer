@@ -38,6 +38,8 @@ def train_eval_loop(
     learn_angle: bool = True,
     use_wandb: bool = True,
     eval_fraction: float = 0.25,
+    save_visualize: bool = False,
+    save_checkpoint_freq: int = 10,
 ):
     """
     Train and evaluate the model for several epochs (vint or gnm models)
@@ -63,9 +65,13 @@ def train_eval_loop(
         learn_angle: whether to learn the angle or not
         use_wandb: whether to log to wandb or not
         eval_fraction: fraction of training data to use for evaluation
+        save_visualize: whether to save visualization images (default: False to save disk space)
+        save_checkpoint_freq: save checkpoint every N epochs (default: 10)
     """
     assert 0 <= alpha <= 1
     latest_path = os.path.join(project_folder, f"latest.pth")
+    best_path = os.path.join(project_folder, f"best.pth")
+    best_loss = float('inf')
 
     for epoch in range(current_epoch, current_epoch + epochs):
         if train_model:
@@ -88,6 +94,7 @@ def train_eval_loop(
                 image_log_freq=image_log_freq,
                 num_images_log=num_images_log,
                 use_wandb=use_wandb,
+                save_visualize=save_visualize,
             )
 
         avg_total_test_loss = []
@@ -111,6 +118,7 @@ def train_eval_loop(
                 num_images_log=num_images_log,
                 use_wandb=use_wandb,
                 eval_fraction=eval_fraction,
+                save_visualize=save_visualize,
             )
 
             avg_total_test_loss.append(total_eval_loss)
@@ -138,9 +146,22 @@ def train_eval_loop(
                 "lr": optimizer.param_groups[0]["lr"],
             }, commit=False)
 
-        numbered_path = os.path.join(project_folder, f"{epoch}.pth")
+        # Track best model
+        current_avg_loss = np.mean(avg_total_test_loss)
+        if current_avg_loss < best_loss:
+            best_loss = current_avg_loss
+            torch.save(checkpoint, best_path)
+            print(f"✅ New best model saved at epoch {epoch} with loss {best_loss:.4f}")
+
+        # Save checkpoint based on frequency
+        # Always save latest.pth
         torch.save(checkpoint, latest_path)
-        torch.save(checkpoint, numbered_path)  # keep track of model at every epoch
+        
+        # Save numbered checkpoint every save_checkpoint_freq epochs or at the last epoch
+        if (epoch % save_checkpoint_freq == 0) or (epoch == current_epoch + epochs - 1):
+            numbered_path = os.path.join(project_folder, f"{epoch}.pth")
+            torch.save(checkpoint, numbered_path)
+            print(f"💾 Checkpoint saved: {epoch}.pth")
 
     # Flush the last set of eval logs
     if use_wandb:

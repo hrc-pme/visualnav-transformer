@@ -56,9 +56,8 @@ START_SLACK = config['processing']['start_slack']
 END_SLACK = config['processing']['end_slack']
 
 # Directory paths
-BAG_INPUT_DIR = os.path.join(TRAIN_DIR, "datasets", DATASET_NAME, "rosbags")
-PROCESSED_OUTPUT_DIR = os.path.join(TRAIN_DIR, "datasets", DATASET_NAME, "processed_data", DATASET_NAME)
-DATA_SPLITS_DIR = os.path.join(TRAIN_DIR, "vint_train/data/data_splits", DATASET_NAME)
+DATASETS_ROOT_DIR = os.path.join(TRAIN_DIR, "datasets")
+# Note: Individual dataset paths will be constructed dynamically when processing all datasets
 
 # ============================================================================
 # END CONFIGURATION SECTION
@@ -391,76 +390,226 @@ def create_train_test_split(processed_dir, splits_dir, split_ratio):
     print(f"\nSplit files created in: {splits_dir}")
 
 
-def main():
-    """Main processing function."""
-    print("\n" + "="*70)
-    print("ROS2 Bag to Training Format Converter")
-    print("="*70)
-    print(f"\nConfiguration (from data.yaml):")
-    print(f"  Dataset Name:    {DATASET_NAME}")
-    print(f"  Input Dir:       {BAG_INPUT_DIR}")
-    print(f"  Output Dir:      {PROCESSED_OUTPUT_DIR}")
-    print(f"  Splits Dir:      {DATA_SPLITS_DIR}")
-    print(f"  Image Topic:     {IMAGE_TOPIC} {'(compressed)' if IMAGE_COMPRESSED else '(raw)'}")
-    print(f"  Pose Topic:      {POSE_TOPIC}")
-    print(f"  Sample Rate:     {SAMPLE_RATE} Hz")
-    print(f"  Image Size:      {IMAGE_SIZE[0]}x{IMAGE_SIZE[1]}")
-    print(f"  Train/Test:      {TRAIN_TEST_SPLIT*100:.0f}% / {(1-TRAIN_TEST_SPLIT)*100:.0f}%")
-    print("="*70 + "\n")
+def process_single_dataset(dataset_name, dataset_path):
+    """
+    Process a single dataset.
     
-    # Check if input directory exists
-    if not os.path.exists(BAG_INPUT_DIR):
-        print(f"Error: Input directory not found: {BAG_INPUT_DIR}")
-        print("Please record some bags first using dataset_record.py")
-        sys.exit(1)
+    Args:
+        dataset_name: Name of the dataset
+        dataset_path: Path to the dataset directory
+    
+    Returns:
+        bool: True if processing was successful
+    """
+    print("\n" + "="*70)
+    print(f"Processing Dataset: {dataset_name}")
+    print("="*70)
+    
+    # Define paths for this dataset
+    bag_input_dir = os.path.join(dataset_path, "rosbags")
+    processed_output_dir = os.path.join(dataset_path, "processed_data", dataset_name)
+    data_splits_dir = os.path.join(TRAIN_DIR, "vint_train/data/data_splits", dataset_name)
+    
+    print(f"  Input (rosbags):  {bag_input_dir}")
+    print(f"  Output (processed): {processed_output_dir}")
+    print(f"  Splits:           {data_splits_dir}")
+    
+    # Check if rosbags directory exists
+    if not os.path.exists(bag_input_dir):
+        print(f"  ⚠ Skipping: No rosbags directory found")
+        return False
     
     # Find all ROS2 bag directories
     bag_dirs = []
-    for item in os.listdir(BAG_INPUT_DIR):
-        item_path = os.path.join(BAG_INPUT_DIR, item)
+    for item in os.listdir(bag_input_dir):
+        item_path = os.path.join(bag_input_dir, item)
         if os.path.isdir(item_path):
             # Check if it's a ROS2 bag (has metadata.yaml)
             if os.path.exists(os.path.join(item_path, "metadata.yaml")):
                 bag_dirs.append(item_path)
     
     if len(bag_dirs) == 0:
-        print(f"Error: No ROS2 bags found in {BAG_INPUT_DIR}")
-        sys.exit(1)
+        print(f"  ⚠ Skipping: No ROS2 bags found in rosbags directory")
+        return False
     
-    print(f"Found {len(bag_dirs)} ROS2 bag(s) to process\n")
+    print(f"  Found {len(bag_dirs)} ROS2 bag(s) to process")
     
     # Create output directory
-    os.makedirs(PROCESSED_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(processed_output_dir, exist_ok=True)
     
     # Process each bag
     all_trajs = []
     for bag_path in bag_dirs:
-        trajs = process_ros2_bag(bag_path, PROCESSED_OUTPUT_DIR, SAMPLE_RATE)
+        trajs = process_ros2_bag(bag_path, processed_output_dir, SAMPLE_RATE)
         all_trajs.extend(trajs)
         print()
     
-    print(f"Total trajectories created: {len(all_trajs)}\n")
+    print(f"  Total trajectories created: {len(all_trajs)}")
     
     # Create train/test split
     if len(all_trajs) > 0:
-        print("Creating train/test split...")
-        create_train_test_split(PROCESSED_OUTPUT_DIR, DATA_SPLITS_DIR, TRAIN_TEST_SPLIT)
+        print(f"  Creating train/test split...")
+        create_train_test_split(processed_output_dir, data_splits_dir, TRAIN_TEST_SPLIT)
+        print(f"  ✓ Dataset processed successfully!")
+        return True
+    else:
+        print(f"  ✗ Error: No trajectories were created")
+        return False
+
+
+def main():
+    """Main processing function - processes all datasets."""
+    parser = argparse.ArgumentParser(description="Convert ROS2 bags to training format")
+    parser.add_argument(
+        "--dataset", 
+        type=str, 
+        help="Process only a specific dataset (optional, default: all datasets)"
+    )
+    parser.add_argument(
+        "--list", 
+        action="store_true",
+        help="List all available datasets and exit"
+    )
+    args = parser.parse_args()
+    
+    print("\n" + "="*70)
+    print("ROS2 Bag to Training Format Converter")
+    print("="*70)
+    print(f"\nConfiguration (from data.yaml):")
+    print(f"  Datasets Root:   {DATASETS_ROOT_DIR}")
+    print(f"  Image Topic:     {IMAGE_TOPIC} {'(compressed)' if IMAGE_COMPRESSED else '(raw)'}")
+    print(f"  Pose Topic:      {POSE_TOPIC}")
+    print(f"  Sample Rate:     {SAMPLE_RATE} Hz")
+    print(f"  Image Size:      {IMAGE_SIZE[0]}x{IMAGE_SIZE[1]}")
+    print(f"  Train/Test:      {TRAIN_TEST_SPLIT*100:.0f}% / {(1-TRAIN_TEST_SPLIT)*100:.0f}%")
+    print(f"  Filter Backwards: {FILTER_BACKWARDS}")
+    print("="*70 + "\n")
+    
+    # Check if datasets root directory exists
+    if not os.path.exists(DATASETS_ROOT_DIR):
+        print(f"Error: Datasets root directory not found: {DATASETS_ROOT_DIR}")
+        sys.exit(1)
+    
+    # Find all dataset directories
+    all_datasets = []
+    for item in os.listdir(DATASETS_ROOT_DIR):
+        item_path = os.path.join(DATASETS_ROOT_DIR, item)
+        if os.path.isdir(item_path):
+            # Check if it has a rosbags subdirectory
+            rosbags_path = os.path.join(item_path, "rosbags")
+            if os.path.exists(rosbags_path):
+                all_datasets.append(item)
+    
+    all_datasets.sort()  # Sort alphabetically
+    
+    if len(all_datasets) == 0:
+        print(f"Error: No datasets found in {DATASETS_ROOT_DIR}")
+        print("Expected structure: datasets/<dataset_name>/rosbags/")
+        sys.exit(1)
+    
+    # Handle --list option
+    if args.list:
+        print(f"Found {len(all_datasets)} dataset(s):\n")
+        for i, dataset_name in enumerate(all_datasets, 1):
+            dataset_path = os.path.join(DATASETS_ROOT_DIR, dataset_name)
+            rosbags_path = os.path.join(dataset_path, "rosbags")
+            
+            # Count bags
+            bag_count = 0
+            if os.path.exists(rosbags_path):
+                for item in os.listdir(rosbags_path):
+                    item_path = os.path.join(rosbags_path, item)
+                    if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "metadata.yaml")):
+                        bag_count += 1
+            
+            # Check if already processed
+            processed_path = os.path.join(dataset_path, "processed_data", dataset_name)
+            status = "✓ processed" if os.path.exists(processed_path) else "○ not processed"
+            
+            print(f"  {i}. {dataset_name:30s} [{bag_count} bags] {status}")
         
+        print(f"\nTo process all datasets: python dataset_train_format.py")
+        print(f"To process specific dataset: python dataset_train_format.py --dataset <name>")
+        sys.exit(0)
+    
+    # Determine which datasets to process
+    if args.dataset:
+        # Process specific dataset
+        if args.dataset not in all_datasets:
+            print(f"Error: Dataset '{args.dataset}' not found")
+            print(f"\nAvailable datasets: {', '.join(all_datasets)}")
+            sys.exit(1)
+        datasets_to_process = [args.dataset]
+        print(f"Processing specific dataset: {args.dataset}\n")
+    else:
+        # Process all datasets
+        datasets_to_process = all_datasets
+        print(f"Found {len(all_datasets)} dataset(s) to process:")
+        for dataset_name in all_datasets:
+            print(f"  - {dataset_name}")
+        print()
+    
+    # Process datasets
+    successful = []
+    failed = []
+    skipped = []
+    
+    for dataset_name in datasets_to_process:
+        dataset_path = os.path.join(DATASETS_ROOT_DIR, dataset_name)
+        
+        try:
+            result = process_single_dataset(dataset_name, dataset_path)
+            if result:
+                successful.append(dataset_name)
+            else:
+                skipped.append(dataset_name)
+        except Exception as e:
+            print(f"  ✗ Error processing dataset: {e}")
+            failed.append(dataset_name)
+    
+    # Print summary
+    print("\n" + "="*70)
+    print("Processing Summary")
+    print("="*70)
+    print(f"  Total datasets: {len(datasets_to_process)}")
+    print(f"  ✓ Successful:   {len(successful)}")
+    print(f"  ⚠ Skipped:      {len(skipped)}")
+    print(f"  ✗ Failed:       {len(failed)}")
+    
+    if successful:
+        print(f"\nSuccessfully processed datasets:")
+        for name in successful:
+            print(f"  ✓ {name}")
+    
+    if skipped:
+        print(f"\nSkipped datasets (no bags or already processed):")
+        for name in skipped:
+            print(f"  ⚠ {name}")
+    
+    if failed:
+        print(f"\nFailed datasets:")
+        for name in failed:
+            print(f"  ✗ {name}")
+    
+    if successful:
         print("\n" + "="*70)
-        print("Processing complete!")
+        print("Next Steps")
         print("="*70)
-        print(f"\nProcessed data location:  {PROCESSED_OUTPUT_DIR}")
-        print(f"Split files location:     {DATA_SPLITS_DIR}")
-        print(f"\nNext step: Update config/vint.yaml with the following paths:")
-        print(f"  datasets:")
-        print(f"    {DATASET_NAME}:")
-        print(f"      data_folder: {PROCESSED_OUTPUT_DIR}")
-        print(f"      train: {os.path.join(DATA_SPLITS_DIR, 'train/')}")
-        print(f"      test: {os.path.join(DATA_SPLITS_DIR, 'test/')}")
+        print(f"\nUpdate config/vint.yaml with the following dataset paths:")
+        print(f"\ndatasets:")
+        for name in successful:
+            processed_dir = os.path.join(DATASETS_ROOT_DIR, name, "processed_data", name)
+            splits_dir = os.path.join(TRAIN_DIR, "vint_train/data/data_splits", name)
+            print(f"  {name}:")
+            print(f"    data_folder: {processed_dir}")
+            print(f"    train: {os.path.join(splits_dir, 'train/')}")
+            print(f"    test: {os.path.join(splits_dir, 'test/')}")
+        
         print(f"\nThen run: python train.py --config config/vint.yaml")
         print("="*70 + "\n")
     else:
-        print("Error: No trajectories were created. Check your bag files and topic configuration.")
+        print("\nNo datasets were successfully processed.")
+        print("="*70 + "\n")
 
 
 if __name__ == "__main__":

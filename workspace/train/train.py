@@ -536,6 +536,8 @@ def main(config):
             alpha=config["alpha"],
             use_wandb=config["use_wandb"],
             eval_fraction=config["eval_fraction"],
+            save_visualize=config.get("save_visualize", False),  # Default: False to save disk space
+            save_checkpoint_freq=config.get("save_checkpoint_freq", 10),  # Default: every 10 epochs
         )
     else:
         train_eval_loop_nomad(
