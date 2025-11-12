@@ -1,18 +1,18 @@
 vint: 
   config_path: "../../train/config/vint.yaml"
-  ckpt_path: "../model/vint_stairs_1elevator_2025_11_12_17_53_58/latest.pth"
+  ckpt_path: "../../model/vint_stairs_1elevator_2025_11_12_20_43_03/latest.pth"
 
 late_fusion: 
   config_path: "../../train/config/late_fusion.yaml"
-  ckpt_path: "../model/vint.pth"
+  ckpt_path: "../../model/vint.pth"
 
 gnm: 
   config_path: "../../train/config/gnm.yaml"
-  ckpt_path: "../model/gnm.pth"
+  ckpt_path: "../../model/gnm.pth"
 
 nomad: 
   config_path: "../../train/config/nomad.yaml"
-  ckpt_path: "../model/nomad.pth"
+  ckpt_path: "../../model/nomad.pth"
 
 
 # add your own model configs here after saving the *.pth file to ../model_weight
