@@ -3,6 +3,8 @@ train/datasets/*
 train/vint_train/data/data_splits/*
 train/wandb/*
 train/gnm_dataset/*
+datasets/
+data_splits/
 *_test.yaml
 
 *.png
@@ -147,3 +149,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+wandb/
+model/
