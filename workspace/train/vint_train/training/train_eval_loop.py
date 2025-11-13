@@ -217,7 +217,13 @@ def train_eval_loop_nomad(
         eval_freq: frequency of evaluation
     """
     latest_path = os.path.join(project_folder, f"latest.pth")
-    ema_model = EMAModel(model=model,power=0.75)
+    
+    # Initialize EMA model with the model's parameters
+    # New diffusers API requires parameters instead of model
+    ema_model = EMAModel(
+        parameters=model.parameters(),
+        power=0.75
+    )
     
     for epoch in range(current_epoch, current_epoch + epochs):
         if train_model:
@@ -244,9 +250,15 @@ def train_eval_loop_nomad(
             )
             lr_scheduler.step()
 
+        # Save EMA model weights using new API
+        import copy
+        ema_save_model = copy.deepcopy(model)
+        ema_model.copy_to(ema_save_model.parameters())
+        
         numbered_path = os.path.join(project_folder, f"ema_{epoch}.pth")
-        torch.save(ema_model.averaged_model.state_dict(), numbered_path)
-        numbered_path = os.path.join(project_folder, f"ema_latest.pth")
+        torch.save(ema_save_model.state_dict(), numbered_path)
+        latest_ema_path = os.path.join(project_folder, f"ema_latest.pth")
+        torch.save(ema_save_model.state_dict(), latest_ema_path)
         print(f"Saved EMA model to {numbered_path}")
 
         numbered_path = os.path.join(project_folder, f"{epoch}.pth")
@@ -273,6 +285,7 @@ def train_eval_loop_nomad(
                 loader = test_dataloaders[dataset_type]
                 evaluate_nomad(
                     eval_type=dataset_type,
+                    model=model,
                     ema_model=ema_model,
                     dataloader=loader,
                     transform=transform,

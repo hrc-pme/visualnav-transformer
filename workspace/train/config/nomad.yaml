@@ -3,7 +3,7 @@
 # ============================================================================
 
 # Training Name (used only during training to name the output model)
-training_name: "nomad_baseline"
+training_name: "nomad_stairs_1elevator"
 
 # Dataset Configuration
 # NOTE: The training script will automatically scan and use ALL datasets in train/datasets/
@@ -16,7 +16,7 @@ training_name: "nomad_baseline"
 # Fine-tuning Configuration
 # Option 1: Fine-tune from official foundation model (recommended)
 use_foundation_model: true     # Use official NoMaD foundation model as starting point
-foundation_model_path: "/workspace/deployment/model_weights"  # Path to foundation models
+foundation_model_path: "/workspace/model"  # Path to foundation models (e.g., vint.pth, gnm.pth, nomad.pth)
 
 # Option 2: Fine-tune from your own previous training run
 # load_run: "nomad_baseline_2025_11_07_001234"  # Uncomment to fine-tune from a previous run
@@ -77,6 +77,9 @@ normalize: True
 context_type: temporal
 context_size: 3 # 5
 alpha: 1e-4
+
+# goal type
+goal_type: "image"
 
 # distance bounds for distance and action and distance predictions 
 distance:

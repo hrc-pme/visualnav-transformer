@@ -25,7 +25,7 @@ from diffusers.optimization import get_scheduler
 # ============================================================================
 
 # Config file path
-CONFIG_FILE = "config/vint.yaml"
+CONFIG_FILE = "config/nomad.yaml"
 
 # W&B Entity (change this to your wandb entity)
 # Set to None to use your default entity, or specify your wandb username/team
