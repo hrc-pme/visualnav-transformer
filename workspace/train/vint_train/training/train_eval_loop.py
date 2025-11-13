@@ -190,16 +190,18 @@ def train_eval_loop_nomad(
     use_wandb: bool = True,
     eval_fraction: float = 0.25,
     eval_freq: int = 1,
+    save_visualize: bool = False,
+    save_checkpoint_freq: int = 10,
 ):
     """
-    Train and evaluate the model for several epochs (vint or gnm models)
+    Train and evaluate the model for several epochs (NoMaD models)
 
     Args:
         model: model to train
         optimizer: optimizer to use
         lr_scheduler: learning rate scheduler to use
         noise_scheduler: noise scheduler to use
-        dataloader: dataloader for train dataset
+        train_loader: dataloader for train dataset
         test_dataloaders: dict of dataloaders for testing
         transform: transform to apply to images
         goal_mask_prob: probability of masking the goal token during training
@@ -215,8 +217,12 @@ def train_eval_loop_nomad(
         use_wandb: whether to log to wandb or not
         eval_fraction: fraction of training data to use for evaluation
         eval_freq: frequency of evaluation
+        save_visualize: whether to save visualization images (default: False to save disk space)
+        save_checkpoint_freq: save checkpoint every N epochs (default: 10)
     """
     latest_path = os.path.join(project_folder, f"latest.pth")
+    best_path = os.path.join(project_folder, f"best.pth")
+    best_loss = float('inf')
     
     # Initialize EMA model with the model's parameters
     # New diffusers API requires parameters instead of model
@@ -228,7 +234,7 @@ def train_eval_loop_nomad(
     for epoch in range(current_epoch, current_epoch + epochs):
         if train_model:
             print(
-            f"Start ViNT DP Training Epoch {epoch}/{current_epoch + epochs - 1}"
+            f"Start NoMaD Training Epoch {epoch}/{current_epoch + epochs - 1}"
             )
             train_nomad(
                 model=model,
@@ -243,44 +249,19 @@ def train_eval_loop_nomad(
                 epoch=epoch,
                 print_log_freq=print_log_freq,
                 wandb_log_freq=wandb_log_freq,
-                image_log_freq=image_log_freq,
+                image_log_freq=image_log_freq if save_visualize else 0,
                 num_images_log=num_images_log,
                 use_wandb=use_wandb,
                 alpha=alpha,
             )
             lr_scheduler.step()
 
-        # Save EMA model weights using new API
-        import copy
-        ema_save_model = copy.deepcopy(model)
-        ema_model.copy_to(ema_save_model.parameters())
-        
-        numbered_path = os.path.join(project_folder, f"ema_{epoch}.pth")
-        torch.save(ema_save_model.state_dict(), numbered_path)
-        latest_ema_path = os.path.join(project_folder, f"ema_latest.pth")
-        torch.save(ema_save_model.state_dict(), latest_ema_path)
-        print(f"Saved EMA model to {numbered_path}")
-
-        numbered_path = os.path.join(project_folder, f"{epoch}.pth")
-        torch.save(model.state_dict(), numbered_path)
-        torch.save(model.state_dict(), latest_path)
-        print(f"Saved model to {numbered_path}")
-
-        # save optimizer
-        numbered_path = os.path.join(project_folder, f"optimizer_{epoch}.pth")
-        latest_optimizer_path = os.path.join(project_folder, f"optimizer_latest.pth")
-        torch.save(optimizer.state_dict(), latest_optimizer_path)
-
-        # save scheduler
-        numbered_path = os.path.join(project_folder, f"scheduler_{epoch}.pth")
-        latest_scheduler_path = os.path.join(project_folder, f"scheduler_latest.pth")
-        torch.save(lr_scheduler.state_dict(), latest_scheduler_path)
-
-
+        # Evaluation loop
+        avg_total_test_loss = []
         if (epoch + 1) % eval_freq == 0: 
             for dataset_type in test_dataloaders:
                 print(
-                    f"Start {dataset_type} ViNT DP Testing Epoch {epoch}/{current_epoch + epochs - 1}"
+                    f"Start {dataset_type} NoMaD Testing Epoch {epoch}/{current_epoch + epochs - 1}"
                 )
                 loader = test_dataloaders[dataset_type]
                 evaluate_nomad(
@@ -299,22 +280,74 @@ def train_eval_loop_nomad(
                     wandb_log_freq=wandb_log_freq,
                     use_wandb=use_wandb,
                     eval_fraction=eval_fraction,
+                    image_log_freq=image_log_freq if save_visualize else 0,
                 )
-        if use_wandb:
-            wandb.log({
-                "lr": optimizer.param_groups[0]["lr"],
-            }, commit=False)
+                # Note: evaluate_nomad currently doesn't return loss
+                # We'll track best model based on training loss for now
 
-        if lr_scheduler is not None:
-            lr_scheduler.step()
+        # Save EMA model weights using new API
+        import copy
+        ema_save_model = copy.deepcopy(model)
+        ema_model.copy_to(ema_save_model.parameters())
+        
+        # Always save latest EMA model
+        latest_ema_path = os.path.join(project_folder, f"ema_latest.pth")
+        torch.save(ema_save_model.state_dict(), latest_ema_path)
+        
+        # Save numbered EMA checkpoint every save_checkpoint_freq epochs or at the last epoch
+        if (epoch % save_checkpoint_freq == 0) or (epoch == current_epoch + epochs - 1):
+            numbered_ema_path = os.path.join(project_folder, f"ema_{epoch}.pth")
+            torch.save(ema_save_model.state_dict(), numbered_ema_path)
+            print(f"💾 EMA Checkpoint saved: ema_{epoch}.pth")
 
-        # log average eval loss
-        if use_wandb:
-            wandb.log({}, commit=False)
+        # Always save latest model
+        torch.save(model.state_dict(), latest_path)
+        
+        # Save numbered checkpoint every save_checkpoint_freq epochs or at the last epoch
+        if (epoch % save_checkpoint_freq == 0) or (epoch == current_epoch + epochs - 1):
+            numbered_path = os.path.join(project_folder, f"{epoch}.pth")
+            torch.save(model.state_dict(), numbered_path)
+            print(f"💾 Model Checkpoint saved: {epoch}.pth")
 
-            wandb.log({
-                "lr": optimizer.param_groups[0]["lr"],
-            }, commit=False)
+        # Always save latest optimizer and scheduler
+        latest_optimizer_path = os.path.join(project_folder, f"optimizer_latest.pth")
+        torch.save(optimizer.state_dict(), latest_optimizer_path)
+        
+        latest_scheduler_path = os.path.join(project_folder, f"scheduler_latest.pth")
+        torch.save(lr_scheduler.state_dict(), latest_scheduler_path)
+
+        # Track and save best model
+        # Since evaluate_nomad doesn't return loss yet, we save best based on completion
+        # TODO: Modify evaluate_nomad to return average loss for proper best model tracking
+        if len(avg_total_test_loss) > 0:
+            current_avg_loss = np.mean(avg_total_test_loss)
+            if current_avg_loss < best_loss:
+                best_loss = current_avg_loss
+                # Save best model
+                torch.save(model.state_dict(), best_path)
+                # Save best EMA model
+                best_ema_path = os.path.join(project_folder, f"ema_best.pth")
+                torch.save(ema_save_model.state_dict(), best_ema_path)
+                print(f"✅ New best model saved at epoch {epoch} with loss {best_loss:.4f}")
+            
+            # Log to wandb
+            if use_wandb:
+                wandb.log({
+                    "avg_total_test_loss": current_avg_loss,
+                    "lr": optimizer.param_groups[0]["lr"],
+                }, commit=False)
+        else:
+            # No evaluation this epoch, just log lr and save as "best" periodically
+            if use_wandb:
+                wandb.log({
+                    "lr": optimizer.param_groups[0]["lr"],
+                }, commit=False)
+            # Save best model every save_checkpoint_freq epochs if no eval
+            if epoch % save_checkpoint_freq == 0:
+                torch.save(model.state_dict(), best_path)
+                best_ema_path = os.path.join(project_folder, f"ema_best.pth")
+                torch.save(ema_save_model.state_dict(), best_ema_path)
+                print(f"💾 Best model checkpoint saved at epoch {epoch}")
 
         
     # Flush the last set of eval logs
