@@ -11,8 +11,28 @@ vel_navi_topic: /stretch/cmd_vel
 vel_recovery_topic: /cmd_vel_mux/input/recovery
 
 # Navigation parameters
-topomap_name: "se1"  # Name of the topomap folder
+topomap_name: "se3-2"  # Name of the topomap folder
 model: "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)
 node_range: [-1, -1]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
-z_ratio: 1  # Scale factor for z (yaw) speed
-xy_ratio: 1  # Scale factor for xy (linear) speed
+reach_tolerance: 2  # Number of nodes before goal to consider as "reached" (0 = must reach exact goal node)
+
+# Waypoint scaling (adjusts the model's output waypoint distances)
+waypoint_xy_scale: 1.0  # Scale factor for waypoint x,y distances (larger = farther waypoints)
+waypoint_yaw_scale: 1.0  # Scale factor for waypoint yaw angles (larger = more rotation)
+
+# PD Controller gains (adjusts how aggressively the robot follows waypoints)
+linear_vel_gain: 0.5  # Linear velocity gain (k_v): higher = faster approach to waypoint
+angular_vel_gain: 1  # Angular velocity gain (k_w): higher = faster rotation to target angle
+
+# Yaw control mode for GNM/ViNT (ignored for NoMaD which has no yaw prediction)
+use_model_yaw: false  # true = use model's predicted yaw, false = use arctan2(y, x)
+
+# Camera calibration settings (for Stretch robot head camera)
+# Camera MUST be calibrated before navigation starts. If calibration fails, navigation will abort.
+camera_calibration:
+  pan: 0.15   # Horizontal angle in radians (joint_head_pan): 0=forward, 1.57=left, -1.57=right (3度逆時針)
+  tilt: 0.15  # Vertical angle in radians (joint_head_tilt): 0=horizontal, 0.52=up, -0.79=down (5度往上)
+  # Common presets:
+  # - Navigation (forward): pan=0.0, tilt=0.0
+  # - Look down: pan=0.0, tilt=-0.2
+  # - Look up: pan=0.0, tilt=0.52

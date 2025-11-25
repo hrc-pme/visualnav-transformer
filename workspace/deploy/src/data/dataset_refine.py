@@ -6,13 +6,13 @@ from PIL import Image
 from tqdm import tqdm
 
 # 設定輸入與輸出資料夾路徑
-INPUT_DIR = "../../topomaps/6e-dr"  # 要處理的資料集
-OUTPUT_DIR = "../../topomaps/6e-dr"  # 處理後的資料集
+INPUT_DIR = "../../topomaps/se2"  # 要處理的資料集
+OUTPUT_DIR = "../../topomaps/se2"  # 處理後的資料集
 DIVISION = 1  # 每 DIVISION 張圖片保留一張（例如 2 代表保留 1/2）
 
 # 原始資料保存設定
 SAVE = False  # 是否保存原始資料
-SAVE_DIR = "../../topomaps/6e6-raw"  # 原始資料保存路徑
+SAVE_DIR = "../../topomaps/se2"  # 原始資料保存路徑
 
 def get_numeric_sort_key(filename):
     # 擷取檔名中的數字 (例如 "12.png" -> 12)

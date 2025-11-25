@@ -5,11 +5,15 @@ x-common-settings: &common
   build:
     context: ..
     dockerfile: docker/dockerfile.cpu
+    args:
+      USER_ID: 1000
+      GROUP_ID: 1000
+      USERNAME: vint
   image: hrcnthu/visualnav:cpu-torch
 
   volumes:
     # GUI support for ROS applications
-    - $HOME/.Xauthority:/root/.Xauthority
+    - $HOME/.Xauthority:/home/vint/.Xauthority
     - /tmp/.X11-unix:/tmp/.X11-unix
     
     # Workspace volume
@@ -30,6 +34,7 @@ x-common-settings: &common
   privileged: true
   stop_grace_period: 1s
   working_dir: /workspace
+  user: "1000:1000"
 
 
 ##############################
