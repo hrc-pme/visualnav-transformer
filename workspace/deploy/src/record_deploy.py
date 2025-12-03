@@ -1,55 +1,28 @@
 #!/usr/bin/env python3
-"""
-Record deployment topics for analysis and debugging.
-Records various sensor and navigation topics to a bag file with timestamp.
-Press Ctrl+C to stop recording.
-"""
-
 import rclpy
 from rclpy.node import Node
 import yaml
 import os
+import threading
 from datetime import datetime
+import tkinter as tk
+from tkinter import messagebox
 import subprocess
 import signal
-import sys
 
 
-class RecordDeployNode(Node):
+class BagRecorder(Node):
     def __init__(self):
-        super().__init__('record_deploy_node')
-        
-        # Load configuration (config is in ../config/record.yaml)
+        super().__init__("gui_bag_recorder")
+
         deploy_dir = os.path.dirname(os.path.dirname(__file__))
-        config_path = os.path.join(
-            deploy_dir,
-            'config',
-            'record.yaml'
-        )
-        
-        with open(config_path, 'r') as f:
+        config_path = os.path.join(deploy_dir, "config", "record.yaml")
+        with open(config_path, "r") as f:
             config = yaml.safe_load(f)
-        
-        # Get recording name from config
-        self.recording_name = config.get('name', 'default_recording')
-        
-        # Create timestamp for unique folder name
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        bag_folder_name = f"{self.recording_name}_{timestamp}"
-        
-        # Set up bags directory (bags is in ../bags/)
-        self.bags_dir = os.path.join(
-            deploy_dir,
-            'bags',
-            bag_folder_name
-        )
-        
-        # Create bags directory if it doesn't exist
-        os.makedirs(self.bags_dir, exist_ok=True)
-        
-        self.get_logger().info(f'Recording will be saved to: {self.bags_dir}')
-        
-        # Define topics to record
+
+        self.deploy_dir = deploy_dir
+        self.recording_name = config.get("name", "default_recording")
+
         self.topics = [
             '/camera/camera/color/camera_info',
             '/camera/camera/color/image_raw',
@@ -65,70 +38,100 @@ class RecordDeployNode(Node):
             '/vn/start_node',
             '/waypoint'
         ]
-        
-        # Start recording
-        self.start_recording()
-    
+
+        self.record_process = None
+
+    def create_bag_dir(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        folder = f"{self.recording_name}_{timestamp}"
+        bag_dir = os.path.join(self.deploy_dir, "bags", folder)
+
+        self.get_logger().info(f"Recording to: {bag_dir}")
+        return bag_dir
+
+
     def start_recording(self):
-        """Start ros2 bag record process"""
-        # Build the ros2 bag record command
-        cmd = ['ros2', 'bag', 'record', '-o', self.bags_dir] + self.topics
-        
-        self.get_logger().info('Starting recording...')
-        self.get_logger().info(f'Recording topics: {", ".join(self.topics)}')
-        self.get_logger().info('Press Ctrl+C to stop recording')
-        
-        # Start the recording process
-        try:
-            self.record_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            
-            # Wait for the process to finish (will be terminated by Ctrl+C)
-            self.record_process.wait()
-            
-        except KeyboardInterrupt:
-            self.get_logger().info('Stopping recording...')
-            self.stop_recording()
-        except Exception as e:
-            self.get_logger().error(f'Error during recording: {str(e)}')
-            self.stop_recording()
-    
+        if self.record_process:
+            return
+
+        bag_dir = self.create_bag_dir()
+
+        cmd = [
+            "ros2", "bag", "record",
+            "-o", bag_dir,
+            "--storage", "mcap",
+            *self.topics
+        ]
+
+        # 非阻塞啟動 rosbag2
+        self.record_process = subprocess.Popen(cmd)
+        self.get_logger().info(f"Started ros2 bag record to {bag_dir}")
+
     def stop_recording(self):
-        """Stop the recording process"""
-        if hasattr(self, 'record_process'):
-            self.record_process.terminate()
-            try:
-                self.record_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.record_process.kill()
-        
-        self.get_logger().info(f'Recording saved to: {self.bags_dir}')
+        if not self.record_process:
+            return
+
+        self.record_process.send_signal(signal.SIGINT)
+        self.record_process.wait()
+        self.record_process = None
+
+        self.get_logger().info("Stopped recording.")
 
 
-def signal_handler(sig, frame):
-    """Handle Ctrl+C gracefully"""
-    print('\nStopping recording...')
-    sys.exit(0)
+class RecorderGUI:
+    def __init__(self, node):
+        self.node = node
+
+        self.root = tk.Tk()
+        self.root.title("ROS2 Bag Recorder")
+        self.root.geometry("320x200")
+
+        self.btn_record = tk.Button(self.root, text="Record", font=("Arial", 16),
+                                    command=self.on_record)
+        self.btn_record.pack(pady=15)
+
+        self.btn_stop = tk.Button(self.root, text="Stop", font=("Arial", 16),
+                                  command=self.on_stop, state=tk.DISABLED)
+        self.btn_stop.pack(pady=15)
+
+        self.btn_exit = tk.Button(self.root, text="Exit", font=("Arial", 14),
+                                  command=self.on_exit)
+        self.btn_exit.pack(pady=15)
+
+        threading.Thread(target=self.spin_ros, daemon=True).start()
+
+    def spin_ros(self):
+        rclpy.spin(self.node)
+
+    def on_record(self):
+        self.node.start_recording()
+        self.btn_record.config(state=tk.DISABLED)
+        self.btn_stop.config(state=tk.NORMAL)
+        self.btn_exit.config(state=tk.DISABLED)
+
+    def on_stop(self):
+        self.node.stop_recording()
+        self.btn_record.config(state=tk.NORMAL)
+        self.btn_stop.config(state=tk.DISABLED)
+        self.btn_exit.config(state=tk.NORMAL)
+
+    def on_exit(self):
+        if self.node.record_process:
+            messagebox.showwarning("Recording", "Stop recording before exiting.")
+            return
+        self.root.destroy()
+        rclpy.shutdown()
+
+    def run(self):
+        self.root.mainloop()
 
 
 def main(args=None):
-    # Set up signal handler for Ctrl+C
-    signal.signal(signal.SIGINT, signal_handler)
-    
     rclpy.init(args=args)
-    
-    try:
-        node = RecordDeployNode()
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        if rclpy.ok():
-            rclpy.shutdown()
+    node = BagRecorder()
+    gui = RecorderGUI(node)
+    gui.run()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

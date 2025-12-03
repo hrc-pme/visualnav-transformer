@@ -59,7 +59,7 @@ if [ "$PLATFORM" = "thor" ]; then
 fi
 
 ## 2. environment setup  
-export DISPLAY=${DISPLAY:-:0}
+export DISPLAY=localhost:10.0
 export ROS_DOMAIN_ID=25
 
 # Only run xhost for local displays (not SSH forwarded)

@@ -5,24 +5,17 @@ x-common-settings: &common
   build:
     context: ..
     dockerfile: docker/dockerfile.cpu
-    args:
-      USER_ID: 1000
-      GROUP_ID: 1000
-      USERNAME: vint
   image: hrcnthu/visualnav:cpu-torch
 
   volumes:
-    # GUI support for ROS applications
-    - $HOME/.Xauthority:/home/vint/.Xauthority
+    - $HOME/.Xauthority:/root/.Xauthority:ro
     - /tmp/.X11-unix:/tmp/.X11-unix
-    
-    # Workspace volume
     - ../workspace:/workspace
 
   environment:
-    - ROS_DOMAIN_ID=25
     - DISPLAY=${DISPLAY}
-    - XAUTHORITY=/tmp/.docker.xauth
+    - XAUTHORITY=/root/.Xauthority
+    - ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
 
   # ROS2 communication settings
   network_mode: "host"
@@ -34,7 +27,7 @@ x-common-settings: &common
   privileged: true
   stop_grace_period: 1s
   working_dir: /workspace
-  user: "1000:1000"
+  # user: "1000:1000"  # 預設 root 權限，若需非 root 請取消註解
 
 
 ##############################

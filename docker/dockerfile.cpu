@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-trajectory-msgs \
     ros-humble-action-msgs \
     ros-humble-rmw-cyclonedds-cpp \
+    ros-humble-rosbag2-storage-mcap \
     python3-cv-bridge \
     && rm -rf /var/lib/apt/lists/*
 
@@ -53,6 +54,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-foxglove-bridge \
     x11-apps \
     sudo \
+    python3-tk \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies for the project
@@ -72,17 +74,19 @@ RUN pip3 install \
     warmup_scheduler \
     && pip3 install --upgrade pip
 
-# Create non-root user with same UID/GID as host user (1000:1000)
-ARG USER_ID=1000
-ARG GROUP_ID=1000
-ARG USERNAME=vint
 
-RUN groupadd -g ${GROUP_ID} ${USERNAME} && \
-    useradd -m -u ${USER_ID} -g ${GROUP_ID} -s /bin/bash ${USERNAME} && \
-    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# 預設非 root 用戶資訊（如需 root 執行，USER 指令已註解）
+ENV USER_ID=1000
+ENV GROUP_ID=1000
+ENV USERNAME=vint
+
+RUN groupadd -g $GROUP_ID $USERNAME && \
+    useradd -m -u $USER_ID -g $GROUP_ID -s /bin/bash $USERNAME && \
+    echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
 
 # Set up ROS environment for user
-RUN echo "source /opt/ros/humble/setup.bash" >> /home/${USERNAME}/.bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc
 
 # Set working directory
 WORKDIR /workspace
@@ -108,16 +112,11 @@ RUN mkdir -p /usr/local/lib/python3.10/dist-packages/vint_train/data && \
 # Clean up copied directories
 RUN rm -rf ./diffusion_policy ./train
 
-# Fix ownership of workspace
-RUN chown -R ${USERNAME}:${USERNAME} /workspace
-
-# Switch to non-root user
-USER ${USERNAME}
+# USER $USERNAME
 
 # Set up ROS environment in user's bashrc
-RUN echo "source /opt/ros/humble/setup.bash" >> /home/${USERNAME}/.bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
 
-# Set CycloneDDS as default RMW implementation for better compatibility
 ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 CMD ["/bin/bash"]
