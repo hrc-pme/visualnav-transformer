@@ -52,6 +52,7 @@ def load_model(
             mha_num_attention_heads=config["mha_num_attention_heads"],
             mha_num_attention_layers=config["mha_num_attention_layers"],
             mha_ff_dim_factor=config["mha_ff_dim_factor"],
+            use_pretrained=config.get("use_pretrained", False),  # Use False by default for inference
         )
     elif config["model_type"] == "nomad":
         if config["vision_encoder"] == "nomad_vint":

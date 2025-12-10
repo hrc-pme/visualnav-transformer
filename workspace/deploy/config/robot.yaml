@@ -10,8 +10,14 @@ vel_teleop_topic: /cmd_vel_mux/input/teleop
 vel_navi_topic: /stretch/cmd_vel
 vel_recovery_topic: /cmd_vel_mux/input/recovery
 
+# Visualization settings
+visualization:
+  enable: true
+  overlay_topic: "/vn/overlay"
+  window_name: "VinT Visualization"
+
 # Navigation parameters
-topomap_name: "se3-2"  # Name of the topomap folder
+topomap_name: "gui2"  # Name of the topomap folder
 model: "vint"  # Default model: gnm/vint/nomad (can be overridden by --model argument)
 node_range: [-1, -1]  # [start_node, goal_node] - if [-1, -1] auto-detect full range
 reach_tolerance: 2  # Number of nodes before goal to consider as "reached" (0 = must reach exact goal node)

@@ -83,26 +83,18 @@ CAMERA_CALIB_PAN = CAMERA_CALIB_CONFIG.get("pan", 0.0)
 CAMERA_CALIB_TILT = CAMERA_CALIB_CONFIG.get("tilt", 0.0)
 CAMERA_CALIB_TIMEOUT = 10.0  # Fixed timeout: 10 seconds (sufficient for head movement + communication)
 
-# Visualization settings
-VISUAL_CONFIG = robot_config.get("visualization", {})
-VIS_ENABLE = VISUAL_CONFIG.get("enable", False)
-VIS_OVERLAY_TOPIC = VISUAL_CONFIG.get("overlay_topic", "/vn/overlay")
-VIS_WINDOW_NAME = VISUAL_CONFIG.get("window_name", "VinT Visualization")
-
 # GLOBALS
 context_queue = []
 context_size = None
 node = None
 shutdown_requested = False
-latest_frame_bgr = None  # 最新相機畫面（BGR），用於 HUD / overlay
 
 # Model download URLs
 MODEL_URLS = {
     "gnm": "https://drive.google.com/file/d/1bzCPd_OsXjS2aGPTQladbI8ImxLZwrQh/view?usp=drive_link",
-    "vint": "https://drive.google.com/file/d/1ckrceGb5m_uUtq3pD8KHwnqtJgPl6kF5/view?usp=drive_link",
+    "vint": "https://drive.google.com/file/d/1ckrceGb5m_uUtq3pD8KHwnqtJgPl6kF5/view?usp=drive_link", 
     "nomad": "https://drive.google.com/file/d/1YJhkkMJAYOiKNyCaelbS_alpUpAJsOUb/view?usp=drive_link"
 }
-
 
 def extract_google_drive_id(url):
     """從 Google Drive URL 提取檔案 ID"""
@@ -111,9 +103,9 @@ def extract_google_drive_id(url):
             return url.split("/file/d/")[1].split("/")[0]
     return None
 
-
 def download_model_from_google_drive(file_id, destination):
     """從 Google Drive 下載模型檔案"""
+    # 使用 gdown 下載 Google Drive 檔案
     try:
         import gdown
         download_url = f"https://drive.google.com/uc?id={file_id}"
@@ -136,19 +128,18 @@ def download_model_from_google_drive(file_id, destination):
         print(f"Failed to download model: {e}")
         return False
 
-
 def ensure_model_exists(model_name, model_path):
     """檢查模型檔案是否存在，如果不存在則下載"""
     if os.path.exists(model_path):
         print(f"Model {model_name} already exists at {model_path}")
         return True
-
+    
     print(f"Model {model_name} not found at {model_path}")
-
+    
     # 確保模型目錄存在
     model_dir = os.path.dirname(model_path)
     os.makedirs(model_dir, exist_ok=True)
-
+    
     if model_name in MODEL_URLS:
         file_id = extract_google_drive_id(MODEL_URLS[model_name])
         if file_id:
@@ -166,23 +157,16 @@ def ensure_model_exists(model_name, model_path):
         print(f"No download URL configured for model: {model_name}")
         return False
 
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 
 def callback_obs(msg):
-    """相機影像 callback：更新 context_queue、image_pub，以及最新 BGR frame 給視覺化使用"""
-    global latest_frame_bgr
-
     obs_img = compressed_msg_to_pil(msg).rotate(270, expand=True)
 
-    if 'node' in globals() and node is not None:
+    if 'node' in globals():
         try:
-            cv_img = np.array(obs_img)  # RGB
-            # 更新最新畫面（BGR）給 HUD / overlay 使用
-            latest_frame_bgr = cv2.cvtColor(cv_img, cv2.COLOR_RGB2BGR)
-
+            cv_img = np.array(obs_img)
             image_msg = node.bridge.cv2_to_imgmsg(cv_img, encoding="rgb8")
             image_msg.header.stamp = node.get_clock().now().to_msg()
             node.image_pub.publish(image_msg)
@@ -196,325 +180,16 @@ def callback_obs(msg):
             context_queue.pop(0)
             context_queue.append(obs_img)
 
-def create_visualization_frame(
-        base_bgr,
-        horizon_waypoints,
-        chosen_waypoint,
-        current_node,
-        goal_node,
-        processing_delay):
-
-    """
-    base_bgr          : 最新相機畫面 (BGR)
-    horizon_waypoints : [H, 2] in base_link (x 前進, y 左右)
-    chosen_waypoint   : [>=2]
-    """
-
-    if base_bgr is None:
-        return None
-
-    vis = base_bgr.copy()
-    h, w = vis.shape[:2]
-
-    # =========================
-    # HUD — 左上角資訊
-    # =========================
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.70
-    thickness = 2
-    color_text = (255, 255, 255)
-    color_shadow = (0, 0, 0)
-
-    def put_hud(y, text):
-        cv2.putText(vis, text, (22, y + 2), font, font_scale,
-                    color_shadow, thickness + 1, cv2.LINE_AA)
-        cv2.putText(vis, text, (20, y), font, font_scale,
-                    color_text, thickness, cv2.LINE_AA)
-
-    put_hud(40, f"Node {current_node:03d} / {goal_node:03d}")
-
-    dx = float(chosen_waypoint[0])
-    dy = float(chosen_waypoint[1])
-    dist = float(np.linalg.norm([dx, dy]))
-    ang = float(np.degrees(np.arctan2(dy, dx)))
-
-    put_hud(70,  f"Next WP: dx={dx:.2f}  dy={dy:.2f}")
-    put_hud(100, f"Dist={dist:.2f} m   Dir={ang:.1f} deg")
-
-    # ============================================================
-    #    TESLA-STYLE MINIMAP (小視窗) — 無邊界網格 + 聚焦 + 漸變透明
-    # ============================================================
-    if horizon_waypoints is not None and len(horizon_waypoints) > 0:
-
-        mini_w, mini_h = 240, 240  # 縮小為原本的 4/5
-        mini = np.zeros((mini_h, mini_w, 3), dtype=np.uint8)  # 使用 BGR
-        mini[:, :, :] = (30, 30, 30)
-
-        # 地板區域（minimap 下方 70%）
-        floor_y0 = int(mini_h * 0.30)
-        floor_y1 = mini_h
-
-        # 投影參數
-        depth_px = floor_y1 - floor_y0
-        lateral_px = mini_w * 4.0  # 增加橫向投影範圍
-        shrink_factor = 0.75
-        gamma = 1.25
-
-        # 世界範圍（擴大到能完整顯示 waypoints）
-        X_MIN = -0.5  # 允許負值以延伸到底部和頂部
-        X_MAX = 2.5   # 增加深度範圍，讓遠處 waypoint 可見
-        Y_MAX = 3.0   # 增加橫向範圍，讓左右 waypoint 可見
-
-        # ==========================================
-        # 世界座標 → minimap 像素座標
-        # ==========================================
-        def world_to_screen(X, Y):
-            t = (X - X_MIN) / (X_MAX - X_MIN)  # 不限制範圍，允許超出
-            t2 = t ** gamma
-
-            v = int(floor_y1 - depth_px * t2)
-            width_here = (1.0 - shrink_factor * t2) * lateral_px
-            u = int(mini_w / 2 + (Y / Y_MAX) * width_here)
-
-            return u, v
-
-        # 漸變透明度計算函數
-        def calc_alpha(y):
-            """計算基於 y 座標的透明度（漸變效果）"""
-            fade_start = 0  # 頂部，完全透明
-            fade_end = mini_h * 0.30  # 30% 高度，完全不透明
-            
-            if y >= fade_end:
-                return 1.0  # 下方區域，完全不透明
-            elif y <= fade_start:
-                return 0.0  # 頂部，完全透明
-            else:
-                # 漸變區域：使用平滑的漸變曲線
-                t = (y - fade_start) / (fade_end - fade_start)
-                return t ** 0.5  # 使用平方根讓漸變更平滑
-
-        # ==========================================
-        # (1) 無邊界地板網格（橫 + 縱），完全填滿視窗 + 漸變
-        # ==========================================
-        grid_xs = np.linspace(X_MIN, X_MAX, 25)
-        grid_ys = np.linspace(-Y_MAX, Y_MAX, 50)
-
-        # 縱向網格線
-        for Xg in grid_xs:
-            points = []
-            for Yg in np.linspace(-Y_MAX, Y_MAX, 150):
-                u, v = world_to_screen(Xg, Yg)
-                points.append((u, v))
-            
-            for i in range(len(points) - 1):
-                u1, v1 = points[i]
-                u2, v2 = points[i+1]
-                
-                # 計算兩個端點的透明度
-                alpha1 = calc_alpha(v1)
-                alpha2 = calc_alpha(v2)
-                avg_alpha = (alpha1 + alpha2) / 2
-                
-                if avg_alpha > 0:
-                    color = tuple(int(70 * avg_alpha) for _ in range(3))
-                    cv2.line(mini, (u1, v1), (u2, v2), color, 1, cv2.LINE_AA)
-
-        # 橫向網格線
-        for Yg in grid_ys:
-            points = []
-            for Xg in np.linspace(X_MIN, X_MAX, 150):
-                u, v = world_to_screen(Xg, Yg)
-                points.append((u, v))
-            
-            for i in range(len(points) - 1):
-                u1, v1 = points[i]
-                u2, v2 = points[i+1]
-                
-                # 計算兩個端點的透明度
-                alpha1 = calc_alpha(v1)
-                alpha2 = calc_alpha(v2)
-                avg_alpha = (alpha1 + alpha2) / 2
-                
-                if avg_alpha > 0:
-                    color = tuple(int(70 * avg_alpha) for _ in range(3))
-                    cv2.line(mini, (u1, v1), (u2, v2), color, 1, cv2.LINE_AA)
-
-        # ==========================================
-        # (2) 中央縱軸（y=0）+ 漸變
-        # ==========================================
-        points = []
-        for Xg in np.linspace(X_MIN, X_MAX, 100):
-            u, v = world_to_screen(Xg, 0.0)
-            points.append((u, v))
-        
-        for i in range(len(points) - 1):
-            u1, v1 = points[i]
-            u2, v2 = points[i+1]
-            
-            alpha1 = calc_alpha(v1)
-            alpha2 = calc_alpha(v2)
-            avg_alpha = (alpha1 + alpha2) / 2
-            
-            if avg_alpha > 0:
-                color = tuple(int(180 * avg_alpha) for _ in range(3))
-                cv2.line(mini, (u1, v1), (u2, v2), color, 4, cv2.LINE_AA)
-
-        # ==========================================
-        # (3) 底部橫軸（x=0）+ 漸變
-        # ==========================================
-        u1, v1 = world_to_screen(0.0, -Y_MAX)
-        u2, v2 = world_to_screen(0.0,  Y_MAX)
-        
-        alpha1 = calc_alpha(v1)
-        alpha2 = calc_alpha(v2)
-        avg_alpha = (alpha1 + alpha2) / 2
-        
-        if avg_alpha > 0:
-            color = tuple(int(180 * avg_alpha) for _ in range(3))
-            cv2.line(mini, (u1, v1), (u2, v2), color, 4, cv2.LINE_AA)
-
-        # 原點標記
-        u0, v0 = world_to_screen(0.0, 0.0)
-        cv2.circle(mini, (u0, v0), 6, (0, 255, 0), -1)
-
-        # ==========================================
-        # (4) H-step Waypoints（含時間步標記）
-        # ==========================================
-        wp_pixels = []
-        for wp in horizon_waypoints:
-            x = float(wp[0])
-            y = float(wp[1])
-            u, v = world_to_screen(x, y)
-            wp_pixels.append((u, v, x))  # 保存 x 座標用於過濾
-
-        # 過濾 waypoints：X 座標必須遞增（忽略倒退的點）
-        filtered_wp_pixels = []
-        last_x = -float('inf')
-        for u, v, x in wp_pixels:
-            if x > last_x:  # 只保留 X 座標更大的點
-                filtered_wp_pixels.append((u, v))
-                last_x = x
-
-        # 🌊 將原點加入軌跡起點，形成完整的平滑曲線
-        # 完整軌跡：原點 → H₁ → H₂ → ... → Hₙ
-        full_trajectory = [(u0, v0)] + filtered_wp_pixels
-
-        # 使用樣條插值繪製真正的平滑曲線（而非折線）
-        if len(full_trajectory) >= 3:  # 至少需要3個點才能做樣條插值
-            from scipy.interpolate import splprep, splev
-            
-            # 提取 x, y 座標
-            traj_x = [p[0] for p in full_trajectory]
-            traj_y = [p[1] for p in full_trajectory]
-            
-            try:
-                # 樣條插值：k=2 表示二次樣條（平滑但不過度彎曲）
-                # s=0 表示曲線通過所有點
-                tck, u = splprep([traj_x, traj_y], s=0, k=min(2, len(full_trajectory)-1))
-                
-                # 生成更密集的點來繪製平滑曲線
-                u_new = np.linspace(0, 1, 100)  # 100個點讓曲線很平滑
-                smooth_x, smooth_y = splev(u_new, tck)
-                
-                # 將平滑曲線點組合成 polylines 格式
-                smooth_points = np.array([[int(x), int(y)] for x, y in zip(smooth_x, smooth_y)], dtype=np.int32)
-                smooth_points = smooth_points.reshape((-1, 1, 2))
-                
-                # 繪製平滑曲線（黃色）
-                cv2.polylines(mini, [smooth_points], isClosed=False, 
-                             color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
-            except:
-                # 如果樣條插值失敗，回退到直線連接
-                points = np.array(full_trajectory, dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(mini, [points], isClosed=False, 
-                             color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
-        elif len(full_trajectory) > 1:
-            # 點數不足以做樣條插值，使用直線連接
-            points = np.array(full_trajectory, dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(mini, [points], isClosed=False, 
-                         color=(0, 255, 255), thickness=2, lineType=cv2.LINE_AA)
-
-        # points with time step labels (只顯示前 5 個：H₁~H₅)
-        max_labels = min(5, len(filtered_wp_pixels))
-        subscripts = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
-        
-        for idx in range(max_labels):
-            u, v = filtered_wp_pixels[idx]
-            # 繪製點
-            cv2.circle(mini, (u, v), 5, (0, 255, 255), -1)
-            
-            # 標記時間步 H₁, H₂, H₃, H₄, H₅ (使用 Unicode 下標)
-            label = f"H{subscripts[idx]}" if idx < len(subscripts) else f"H{idx+1}"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.35
-            thickness = 1
-            
-            # 文字位置（點的右上方）
-            text_x = u + 8
-            text_y = v - 8
-            
-            # 繪製文字陰影（黑色背景）
-            cv2.putText(mini, label, (text_x + 1, text_y + 1), font, font_scale,
-                        (0, 0, 0), thickness + 1, cv2.LINE_AA)
-            # 繪製文字（黃色）
-            cv2.putText(mini, label, (text_x, text_y), font, font_scale,
-                        (0, 255, 255), thickness, cv2.LINE_AA)
-        
-        # 繪製剩餘的點（不帶標籤）
-        for idx in range(max_labels, len(filtered_wp_pixels)):
-            u, v = filtered_wp_pixels[idx]
-            cv2.circle(mini, (u, v), 5, (0, 255, 255), -1)
-
-        # 第一個 waypoint：紅色圈圈（標示「當前目標」）
-        # 這是機器人「現在」正要前往的 waypoint
-        if len(filtered_wp_pixels) > 0:
-            u, v = filtered_wp_pixels[0]
-            cv2.circle(mini, (u, v), 10, (0, 0, 255), 2, cv2.LINE_AA)
-
-        # ==========================================
-        # 添加標題
-        # ==========================================
-        title_font = cv2.FONT_HERSHEY_SIMPLEX
-        title_scale = 0.5
-        title_thickness = 1
-        
-        # 標題：Visual Navigation Minimap
-        title_text = "Visual Navigation Minimap"
-        (title_w, title_h), _ = cv2.getTextSize(title_text, title_font, title_scale, title_thickness)
-        title_x = (mini_w - title_w) // 2  # 置中
-        title_y = 20
-        
-        # 繪製標題陰影（黑色）
-        cv2.putText(mini, title_text, (title_x + 1, title_y + 1), title_font, title_scale,
-                    (0, 0, 0), title_thickness + 1, cv2.LINE_AA)
-        # 繪製標題（白色）
-        cv2.putText(mini, title_text, (title_x, title_y), title_font, title_scale,
-                    (255, 255, 255), title_thickness, cv2.LINE_AA)
-
-        # ==========================================
-        # 貼到主畫面右下角（margin 5px）
-        # ==========================================
-        # 移除 alpha
-        mini_rgb = mini[:, :, :3]
-        y1 = h - mini_h - 5
-        x1 = w - mini_w - 5
-        vis[y1:y1+mini_h, x1:x1+mini_w] = mini_rgb
-
-
-    return vis
-
-
-
 
 class NavigationNode(Node):
     def __init__(self):
         super().__init__("navigation_node")
-
+        
         # ========== 系統診斷與清理 ==========
         self.log_system_status()
         self.cleanup_resources_before_start()
         # ====================================
-
+        
         # Use explicit QoS profile for image subscription
         from rclpy.qos import ReliabilityPolicy, HistoryPolicy
         image_qos = QoSProfile(
@@ -522,11 +197,8 @@ class NavigationNode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=1
         )
-
-        self.create_subscription(CompressedImage,
-                                 "/camera/camera/color/image_raw/compressed",
-                                 callback_obs,
-                                 image_qos)
+        
+        self.create_subscription(CompressedImage, "/camera/camera/color/image_raw/compressed", callback_obs, image_qos)
         qos = QoSProfile(depth=10)
         self.waypoint_pub = self.create_publisher(Float32MultiArray, WAYPOINT_TOPIC, qos)
         self.sampled_actions_pub = self.create_publisher(Float32MultiArray, SAMPLED_ACTIONS_TOPIC, qos)
@@ -534,56 +206,37 @@ class NavigationNode(Node):
         self.chosen_waypoint_pub = self.create_publisher(Float32MultiArray, CHOSEN_WAYPOINT_TOPIC, qos)
         self.image_pub = self.create_publisher(Image, "camera/image/visualnav", qos_profile_sensor_data)
         self.reach_goal_pub = self.create_publisher(Bool, "/reach_goal", qos)
-        self.current_node_pub = self.create_publisher(Int32, CURRENT_NODE_TOPIC, qos)
-        self.start_node_pub = self.create_publisher(Int32, START_NODE_TOPIC, qos)
-        self.end_node_pub = self.create_publisher(Int32, END_NODE_TOPIC, qos)
-        self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)
-        self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", qos)
+        self.current_node_pub = self.create_publisher(Int32, CURRENT_NODE_TOPIC, qos)  # 添加 current node 發布器
+        self.start_node_pub = self.create_publisher(Int32, START_NODE_TOPIC, qos)  # 添加 start node 發布器
+        self.end_node_pub = self.create_publisher(Int32, END_NODE_TOPIC, qos)  # 添加 end node 發布器
+        self.vel_pub = self.create_publisher(Twist, VEL_TOPIC, qos)  # 添加速度控制發布器
+        self.goal_pub = self.create_publisher(PoseStamped, "/goal_pose", qos)  # 添加 goal pose 發布器
         self.bridge = CvBridge()
-
-        # H-step waypoints publisher
-        self.h_waypoints_pub = self.create_publisher(Float32MultiArray, "/vn/h_waypoints", qos)
-
-        # Visualization config
-        self.visualization_enabled = bool(VIS_ENABLE)
-        self.vis_window_name = VIS_WINDOW_NAME
-        self.overlay_pub = None
-        self.video_writer = None
-        self.video_path = None
-
-        if self.visualization_enabled:
-            try:
-                self.overlay_pub = self.create_publisher(Image, VIS_OVERLAY_TOPIC, qos_profile_sensor_data)
-                self.get_logger().info(f"[VIS] Visualization enabled. Overlay topic: {VIS_OVERLAY_TOPIC}")
-                self.get_logger().info(f"[VIS] Window name: {self.vis_window_name}")
-            except Exception as e:
-                self.visualization_enabled = False
-                self.get_logger().error(f"[VIS] Failed to create overlay publisher, disabling visualization: {e}")
-
+        
         # Create action client for head control
         self.head_action_client = ActionClient(
             self,
             FollowJointTrajectory,
             '/stretch_controller/follow_joint_trajectory'
         )
-
+        
         # Create service client for mode switching
         self.switch_to_navigation_mode_client = self.create_client(
             Trigger,
             '/switch_to_navigation_mode'
         )
-
+        
         # Waypoint to goal pose conversion variables
         self.current_waypoint = None
         self.reached_goal = False
-
+        
         # Diagnostics
         self.waypoint_count = 0
         self.last_diagnostic_time = time.time()
-
+        
         # Create waypoint control timer
         self.create_timer(1.0 / WAYPOINT_CONTROL_RATE, self.waypoint_control_loop)
-
+    
     def log_system_status(self):
         """診斷系統狀態"""
         try:
@@ -591,35 +244,34 @@ class NavigationNode(Node):
         except ImportError:
             self.get_logger().warn("psutil not installed, skipping RAM diagnostics")
             psutil = None
-
-        self.get_logger().info("=" * 60)
+        
+        self.get_logger().info("="*60)
         self.get_logger().info("🔍 System Diagnostics - Navigation Start")
-        self.get_logger().info("=" * 60)
-
+        self.get_logger().info("="*60)
+        
         # 1. GPU Memory
         if torch.cuda.is_available():
-            gpu_mem_allocated = torch.cuda.memory_allocated() / 1024 ** 2
-            gpu_mem_reserved = torch.cuda.memory_reserved() / 1024 ** 2
-            gpu_mem_free = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()) / 1024 ** 2
+            gpu_mem_allocated = torch.cuda.memory_allocated() / 1024**2
+            gpu_mem_reserved = torch.cuda.memory_reserved() / 1024**2
+            gpu_mem_free = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()) / 1024**2
             self.get_logger().info(f"📊 GPU Memory:")
             self.get_logger().info(f"   - Allocated: {gpu_mem_allocated:.2f} MB")
             self.get_logger().info(f"   - Reserved:  {gpu_mem_reserved:.2f} MB")
             self.get_logger().info(f"   - Free:      {gpu_mem_free:.2f} MB")
-
+            
             if gpu_mem_allocated > 100:
                 self.get_logger().warn(f"⚠️  GPU memory already occupied: {gpu_mem_allocated:.2f} MB")
                 self.get_logger().warn("   This may indicate previous run didn't clean up properly")
         else:
             self.get_logger().info("📊 GPU: Not available (using CPU)")
-
+        
         # 2. CPU Memory
         if psutil:
             ram = psutil.virtual_memory()
-            self.get_logger().info(
-                f"💾 RAM Usage: {ram.percent:.1f}% ({ram.used / 1024 ** 3:.2f} GB / {ram.total / 1024 ** 3:.2f} GB)")
+            self.get_logger().info(f"💾 RAM Usage: {ram.percent:.1f}% ({ram.used / 1024**3:.2f} GB / {ram.total / 1024**3:.2f} GB)")
             if ram.percent > 80:
                 self.get_logger().warn(f"⚠️  High RAM usage: {ram.percent:.1f}%")
-
+        
         # 3. ROS2 Nodes
         try:
             node_names = self.get_node_names()
@@ -628,39 +280,39 @@ class NavigationNode(Node):
                 self.get_logger().warn(f"⚠️  Many nodes active ({len(node_names)}), may have residual nodes")
         except Exception as e:
             self.get_logger().warn(f"Cannot get node list: {e}")
-
+        
         # 4. Context Queue
         self.get_logger().info(f"📸 Context Queue: {len(context_queue)} / {context_size}")
         if len(context_queue) > 0:
             self.get_logger().warn("⚠️  Context queue not empty! Old data present.")
-
-        self.get_logger().info("=" * 60)
-
+        
+        self.get_logger().info("="*60)
+    
     def cleanup_resources_before_start(self):
         """在開始前清理資源"""
         self.get_logger().info("🧹 Cleaning up resources before navigation...")
-
+        
         # 1. Clear GPU cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
             self.get_logger().info("   ✅ GPU cache cleared")
-
+        
         # 2. Force garbage collection
         import gc
         gc.collect()
         self.get_logger().info("   ✅ Garbage collection completed")
-
+        
         # 3. Clear context queue
         global context_queue
         context_queue.clear()
         self.get_logger().info("   ✅ Context queue cleared")
-
+        
         # Small delay to ensure cleanup
         time.sleep(0.5)
-
+        
         self.get_logger().info("🧹 Resource cleanup completed")
-
+        
     def publish_zero_velocity(self):
         """發布零速度指令以停止機器人"""
         stop_cmd = Twist()
@@ -672,22 +324,28 @@ class NavigationNode(Node):
         stop_cmd.angular.z = 0.0
         self.vel_pub.publish(stop_cmd)
         self.get_logger().info("Published zero velocity command to stop robot")
-
+    
     def switch_to_navigation_mode(self, timeout_sec=5.0):
         """
         切換機器人到 navigation mode
+        
+        Args:
+            timeout_sec: Service 呼叫的超時時間
+            
+        Returns:
+            bool: 成功返回 True，失敗返回 False
         """
         self.get_logger().info("[INFO] Switching robot to navigation mode...")
-
+        
         # Wait for service to be available
         if not self.switch_to_navigation_mode_client.wait_for_service(timeout_sec=timeout_sec):
             self.get_logger().error(f"[ERROR] Service /switch_to_navigation_mode not available after {timeout_sec}s")
             return False
-
+        
         # Call the service
         request = Trigger.Request()
         future = self.switch_to_navigation_mode_client.call_async(request)
-
+        
         try:
             rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
             if future.result() is not None:
@@ -704,80 +362,92 @@ class NavigationNode(Node):
         except Exception as e:
             self.get_logger().error(f"[ERROR] Exception during service call: {e}")
             return False
-
+    
     def calibrate_camera_position(self, pan=0.0, tilt=0.0, timeout_sec=5.0):
         """
         校正相機位置到指定角度
+        
+        Args:
+            pan: 水平角度 (joint_head_pan) in radians
+            tilt: 垂直角度 (joint_head_tilt) in radians  
+            timeout_sec: Action 執行的超時時間
+            
+        Common presets:
+            - ahead: pan=0.0, tilt=0.0
+            - up: pan=0.0, tilt=0.52
+            - down: pan=0.0, tilt=-0.79
+            - left: pan=1.57, tilt=0.0
+            - right: pan=-1.57, tilt=0.0
         """
         self.get_logger().info(f"Calibrating camera to pan={pan:.2f}, tilt={tilt:.2f}")
-
+        
         # Wait for action server - keep trying until available (no timeout)
         self.get_logger().info("Waiting for head control action server...")
         self.get_logger().info("⚠️  If robot is powered off, this will wait indefinitely until you power it on")
-
+        
         while not self.head_action_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().warn("Head control action server not available, retrying...")
             self.get_logger().warn("   Please ensure robot is powered ON and driver is running")
             time.sleep(2.0)
-
+        
         self.get_logger().info("✅ Action server connected!")
-
+        
         # Small delay to ensure connection is stable
         time.sleep(0.5)
-
+        
         # Create goal message
         goal_msg = FollowJointTrajectory.Goal()
         goal_msg.trajectory.joint_names = ['joint_head_pan', 'joint_head_tilt']
-
+        
         # Create trajectory point
         point = JointTrajectoryPoint()
         point.positions = [float(pan), float(tilt)]
         point.time_from_start.sec = 2  # 2 seconds to reach position
         point.time_from_start.nanosec = 0
-
+        
         goal_msg.trajectory.points = [point]
-
+        
         # Send goal and wait for result
         self.get_logger().info("Sending camera calibration goal...")
         try:
             future = self.head_action_client.send_goal_async(goal_msg)
             self.get_logger().info("Goal sent, waiting for acceptance...")
-
+            
             # Wait for goal to be accepted
             rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_sec)
-
+            
             if not future.done():
                 self.get_logger().error("Failed to send goal - future not completed!")
                 return False
-
+            
             goal_handle = future.result()
             if goal_handle is None:
                 self.get_logger().error("Goal handle is None - failed to send goal!")
                 return False
-
+                
             if not goal_handle.accepted:
                 self.get_logger().error("Camera calibration goal rejected!")
                 return False
-
+            
             self.get_logger().info("Camera calibration goal accepted, waiting for result...")
-
+            
             # Wait for result
             result_future = goal_handle.get_result_async()
             rclpy.spin_until_future_complete(self, result_future, timeout_sec=timeout_sec)
-
+            
         except Exception as e:
             self.get_logger().error(f"Exception during camera calibration: {e}")
             import traceback
             traceback.print_exc()
             return False
-
+        
         # Check if we got a result (not timed out)
         if not result_future.done():
             self.get_logger().error(f"Camera calibration timed out after {timeout_sec} seconds!")
             return False
-
+        
         result = result_future.result()
-
+        
         # Check the status code
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info("✅ Camera calibration completed successfully!")
@@ -791,7 +461,7 @@ class NavigationNode(Node):
         else:
             self.get_logger().error(f"❌ Camera calibration failed with status: {result.status}")
             return False
-
+    
     def convert_waypoint_pose(self, waypoint: np.ndarray) -> PoseStamped:
         """將 waypoint 轉換為 PoseStamped 消息"""
         assert len(waypoint) in [2, 4], "waypoint must be 2D or 4D"
@@ -816,28 +486,28 @@ class NavigationNode(Node):
         goal_pose.pose.orientation.w = quaternion[3]
 
         return goal_pose
-
+    
     def waypoint_control_loop(self):
         """Waypoint to velocity control loop"""
         global shutdown_requested
-
+        
         # Check if shutdown was requested
         if shutdown_requested:
             self.publish_zero_velocity()
             self.current_waypoint = None
             return
-
+        
         # Periodic diagnostics (every 30 seconds)
         self.waypoint_count += 1
         if time.time() - self.last_diagnostic_time > 30.0:
             self.periodic_diagnostic()
             self.last_diagnostic_time = time.time()
-
+        
         if self.reached_goal:
             # 目標達成，發布停止訊號並清除航點
             self.publish_zero_velocity()
-            self.current_waypoint = None
-            print(f"\r[Waypoint2Goal] 🎯 GOAL REACHED! Robot stopped." + " " * 80, end='', flush=True)
+            self.current_waypoint = None  # 清除航點以避免繼續處理
+            print(f"\r[Waypoint2Goal] 🎯 GOAL REACHED! Robot stopped." + " "*80, end='', flush=True)
             return
 
         if self.current_waypoint is not None:
@@ -848,7 +518,7 @@ class NavigationNode(Node):
             # 計算速度指令（簡單比例控制器）
             x, y = self.current_waypoint[0], self.current_waypoint[1]
             distance = np.linalg.norm([x, y])
-
+            
             # 根據配置選擇 yaw 計算方式
             if len(self.current_waypoint) > 2 and USE_MODEL_YAW:
                 # 使用模型預測的軌跡切線方向 (GNM/ViNT with use_model_yaw=true)
@@ -866,20 +536,21 @@ class NavigationNode(Node):
             twist.angular.z = float(angular_vel)
 
             self.vel_pub.publish(twist)
+            # 使用 \r 清除同行並輸出新的狀態訊息，加上空格填充以清除舊內容
+            # print(f"\r[Waypoint2Goal] Vel: lin={linear_vel:.2f}m/s, ang={angular_vel:.2f}rad/s | Waypoint: [{x:.2f}, {y:.2f}] | Dist: {distance:.2f}m" + " "*20, end='', flush=True)
 
         else:
             # 靜默等待 waypoint
             pass
-
+    
     def periodic_diagnostic(self):
         """定期診斷系統狀態"""
         if torch.cuda.is_available():
-            gpu_mem = torch.cuda.memory_allocated() / 1024 ** 2
+            gpu_mem = torch.cuda.memory_allocated() / 1024**2
             if gpu_mem > 500:  # More than 500 MB
                 self.get_logger().warn(f"⚠️  High GPU usage: {gpu_mem:.2f} MB")
-
+        
         self.get_logger().info(f"🔄 Waypoint count: {self.waypoint_count} | Context queue: {len(context_queue)}")
-
 
 def emergency_stop_handler(sig, frame):
     """Emergency stop handler for Ctrl+C"""
@@ -887,27 +558,26 @@ def emergency_stop_handler(sig, frame):
     shutdown_requested = True
     print("\n\n⚠️  Emergency stop triggered (Ctrl+C detected)!")
     print("   Stopping robot and cleaning up resources...")
-
+    
     if node is not None:
         try:
             # Stop robot immediately
             node.publish_zero_velocity()
             print("   ✅ Robot stopped (zero velocity published)")
-
+            
             # Give time for message to be sent
             time.sleep(0.3)
             node.publish_zero_velocity()  # Send twice to ensure delivery
             time.sleep(0.2)
-
+            
             # Mark as reached goal to stop waypoint loop
             node.reached_goal = True
-
+            
         except Exception as e:
             print(f"   ⚠️  Error during emergency stop: {e}")
-
+    
     print("   Exiting...\n")
     sys.exit(0)
-
 
 def cleanup_resources():
     """Cleanup function called on exit"""
@@ -915,30 +585,15 @@ def cleanup_resources():
     if node is not None:
         try:
             node.publish_zero_velocity()
-        except:
-            pass
-
-        # 關閉 video writer
-        try:
-            if hasattr(node, "video_writer") and node.video_writer is not None:
-                node.video_writer.release()
-                print("[Cleanup] ✅ Video writer released")
-        except Exception as e:
-            print(f"[Cleanup] ⚠️ Error releasing video writer: {e}")
-
-        try:
             node.destroy_node()
-            print("[Cleanup] ✅ Node destroyed")
         except:
             pass
-
+    
     try:
         if rclpy.ok():
             rclpy.shutdown()
-            print("[Cleanup] ✅ ROS2 shutdown complete")
     except:
         pass
-
 
 def main(args: argparse.Namespace):
     global context_size, node
@@ -946,44 +601,43 @@ def main(args: argparse.Namespace):
     # Register signal handler for Ctrl+C
     signal.signal(signal.SIGINT, emergency_stop_handler)
     signal.signal(signal.SIGTERM, emergency_stop_handler)
-
+    
     # Register cleanup function
     atexit.register(cleanup_resources)
-
+    
     # ========== Pre-execution cleanup ==========
     print("🧹 Pre-execution cleanup...")
-
+    
     # Clear GPU cache
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
         print("   ✅ GPU cache cleared")
-
+    
     # Force garbage collection
     import gc
     gc.collect()
     print("   ✅ Garbage collection completed")
-
+    
     # Clear context queue
     global context_queue
     context_queue.clear()
     print("   ✅ Context queue cleared")
-
+    
     print("🧹 Pre-execution cleanup completed\n")
     # ===========================================
 
     print(f"🤖 Selected model: {args.model}")
     print(f"🎯 Yaw control mode: {'Model prediction' if USE_MODEL_YAW else 'Point-to-point (arctan2)'}")
     print(f"🎯 Reach tolerance: {REACH_TOLERANCE} nodes before goal")
-
+    
     with open(MODEL_CONFIG_PATH, "r") as f:
         model_paths = yaml.safe_load(f)
 
     print(f"📋 Available models: {list(model_paths.keys())}")
-
+    
     if args.model not in model_paths:
-        raise ValueError(
-            f"Model '{args.model}' not found in {MODEL_CONFIG_PATH}. Available models: {list(model_paths.keys())}")
+        raise ValueError(f"Model '{args.model}' not found in {MODEL_CONFIG_PATH}. Available models: {list(model_paths.keys())}")
 
     model_config_path = model_paths[args.model]["config_path"]
     with open(model_config_path, "r") as f:
@@ -992,11 +646,11 @@ def main(args: argparse.Namespace):
     context_size = model_params["context_size"]
 
     ckpth_path = model_paths[args.model]["ckpt_path"]
-
+    
     # 檢查並下載模型（如果需要）
     if not ensure_model_exists(args.model, ckpth_path):
         raise FileNotFoundError(f"Failed to download or locate model weights for {args.model} at {ckpth_path}")
-
+    
     if not os.path.exists(ckpth_path):
         raise FileNotFoundError(f"Model weights not found at {ckpth_path}")
     print(f"Loading model from {ckpth_path}")
@@ -1019,7 +673,7 @@ def main(args: argparse.Namespace):
     topomap_dir = f"{TOPOMAP_IMAGES_DIR}/{TOPOMAP_NAME}"
     topomap = [PILImage.open(os.path.join(topomap_dir, fname)) for fname in topomap_filenames]
     num_nodes = len(topomap)
-
+    
     # Determine start and goal nodes from NODE_RANGE or command line arguments
     if args.start_node is not None or args.goal_node is not None:
         # Use command line arguments if provided, otherwise use NODE_RANGE defaults
@@ -1035,33 +689,33 @@ def main(args: argparse.Namespace):
         else:
             start_node = NODE_RANGE[0]
             goal_node = NODE_RANGE[1] if NODE_RANGE[1] != -1 else num_nodes - 1
-
-    assert 0 <= start_node < num_nodes, f"Invalid start index. Must be between 0 and {num_nodes - 1}"
-    assert 0 <= goal_node < num_nodes, f"Invalid goal index. Must be between 0 and {num_nodes - 1}"
+    
+    assert 0 <= start_node < num_nodes, f"Invalid start index. Must be between 0 and {num_nodes-1}"
+    assert 0 <= goal_node < num_nodes, f"Invalid goal index. Must be between 0 and {num_nodes-1}"
     assert start_node <= goal_node, "Start node must be <= goal node"
-
+    
     print(f"🗺️ Navigation setup: Start node {start_node} → Goal node {goal_node} (Total: {num_nodes} nodes)")
 
     try:
         rclpy.init()
     except:
         print("⚠️  ROS2 already initialized or initialization failed")
-
+    
     node = NavigationNode()
-
+    
     # 發布 start 和 end node 資訊
     start_node_msg = Int32()
     start_node_msg.data = int(start_node)
     node.start_node_pub.publish(start_node_msg)
-
+    
     end_node_msg = Int32()
     end_node_msg.data = int(goal_node)
     node.end_node_pub.publish(end_node_msg)
-
+    
     # ========== 切換到 Navigation Mode (MANDATORY) ==========
     print("🔄 Switching robot to navigation mode...")
     mode_switch_success = node.switch_to_navigation_mode(timeout_sec=5.0)
-
+    
     if not mode_switch_success:
         print("❌ Failed to switch to navigation mode! Navigation aborted.")
         print("   Possible reasons:")
@@ -1071,7 +725,7 @@ def main(args: argparse.Namespace):
         rclpy.shutdown()
         return
     # ========================================================
-
+    
     # ========== 相機校正 (MANDATORY) ==========
     # Camera MUST be calibrated before navigation starts
     print(f"📷 Calibrating camera to navigation position (pan={CAMERA_CALIB_PAN:.2f}, tilt={CAMERA_CALIB_TILT:.2f})...")
@@ -1080,7 +734,7 @@ def main(args: argparse.Namespace):
         tilt=CAMERA_CALIB_TILT,
         timeout_sec=CAMERA_CALIB_TIMEOUT
     )
-
+    
     if calibration_success:
         print("✅ Camera calibration completed successfully!")
         print("   Camera position verified by joint trajectory controller")
@@ -1095,10 +749,11 @@ def main(args: argparse.Namespace):
         return
     # ==========================================
 
+    
     closest_node = start_node  # 從指定的起始節點開始
     reached_goal = False
     start, end = -1, -1
-
+    
     # 記錄收到影像的時間（用於計算延遲）
     last_image_time = time.time()
 
@@ -1107,7 +762,6 @@ def main(args: argparse.Namespace):
             loop_start_time = time.time()
             chosen_waypoint = np.zeros(4)
             processing_delay = 0.0  # 初始化處理延遲
-            horizon_waypoints = None  # H-step polyline（在每次推論時更新）
 
             # 如果已經到達目標，發布停止信號並退出
             if reached_goal:
@@ -1119,7 +773,7 @@ def main(args: argparse.Namespace):
             if len(context_queue) > model_params["context_size"]:
                 # 記錄開始推理的時間
                 inference_start_time = time.time()
-
+                
                 start = max(closest_node - args.radius, start_node)  # 不能小於起始節點
                 end = min(closest_node + args.radius + 1, goal_node)
 
@@ -1129,13 +783,11 @@ def main(args: argparse.Namespace):
                     mask = torch.zeros(1).long().to(device)
 
                     goal_image = [transform_images(img, model_params["image_size"], center_crop=False).to(device)
-                                  for img in topomap[start:end + 1]]
+                                for img in topomap[start:end+1]]
                     goal_image = torch.cat(goal_image, dim=0)
 
-                    obsgoal_cond = model("vision_encoder",
-                                         obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
-                                         goal_img=goal_image,
-                                         input_goal_mask=mask.repeat(len(goal_image)))
+                    obsgoal_cond = model("vision_encoder", obs_img=obs_images.repeat(len(goal_image), 1, 1, 1),
+                                        goal_img=goal_image, input_goal_mask=mask.repeat(len(goal_image)))
                     dists = to_numpy(model("dist_pred_net", obsgoal_cond=obsgoal_cond).flatten())
                     min_idx = np.argmin(dists)
                     closest_node = min_idx + start
@@ -1148,9 +800,7 @@ def main(args: argparse.Namespace):
                     else:
                         obs_cond = obs_cond.repeat(args.num_samples, 1, 1)
 
-                    naction = torch.randn((args.num_samples,
-                                           model_params["len_traj_pred"],
-                                           2), device=device)
+                    naction = torch.randn((args.num_samples, model_params["len_traj_pred"], 2), device=device)
                     noise_scheduler.set_timesteps(num_diffusion_iters)
 
                     for k in noise_scheduler.timesteps:
@@ -1158,26 +808,20 @@ def main(args: argparse.Namespace):
                         naction = noise_scheduler.step(noise_pred, k, naction).prev_sample
 
                     naction = to_numpy(get_action(naction))
-                    node.sampled_actions_pub.publish(
-                        Float32MultiArray(data=np.concatenate(([0], naction.flatten())).tolist()))
-
+                    node.sampled_actions_pub.publish(Float32MultiArray(data=np.concatenate(([0], naction.flatten())).tolist()))
+                    
                     # Publish candidate waypoints for NOMAD (all samples at the chosen waypoint index)
                     candidate_wps = naction[:, args.waypoint, :]  # shape: (num_samples, 2)
                     node.candidate_waypoints_pub.publish(Float32MultiArray(data=candidate_wps.flatten().tolist()))
-
+                    
                     chosen_waypoint = naction[0][args.waypoint]
-
-                    # H-step 軌跡（第一個 sample 的整條）
-                    horizon_waypoints = naction[0]  # shape [H, 2]
-
+                    
                     # Publish chosen waypoint
                     node.chosen_waypoint_pub.publish(Float32MultiArray(data=chosen_waypoint.tolist()))
 
                 else:
-                    batch_obs_imgs = [transform_images(context_queue, model_params["image_size"])
-                                      for _ in range(end - start + 1)]
-                    batch_goal_data = [transform_images(topomap[i], model_params["image_size"])
-                                       for i in range(start, end + 1)]
+                    batch_obs_imgs = [transform_images(context_queue, model_params["image_size"]) for _ in range(end - start + 1)]
+                    batch_goal_data = [transform_images(topomap[i], model_params["image_size"]) for i in range(start, end + 1)]
                     batch_obs_imgs = torch.cat(batch_obs_imgs, dim=0).to(device)
                     batch_goal_data = torch.cat(batch_goal_data, dim=0).to(device)
 
@@ -1186,11 +830,11 @@ def main(args: argparse.Namespace):
                     waypoints = to_numpy(waypoints)
 
                     min_dist_idx = np.argmin(distances)
-
+                    
                     # Publish candidate waypoints for GNM/ViNT (all candidate nodes at the chosen waypoint index)
                     candidate_wps = waypoints[:, args.waypoint, :]  # shape: (num_candidates, 2)
                     node.candidate_waypoints_pub.publish(Float32MultiArray(data=candidate_wps.flatten().tolist()))
-
+                    
                     if distances[min_dist_idx] > args.close_threshold:
                         chosen_waypoint = waypoints[min_dist_idx][args.waypoint]
                         closest_node = start + min_dist_idx
@@ -1206,18 +850,15 @@ def main(args: argparse.Namespace):
                         else:
                             chosen_waypoint = cur_wp
                             closest_node = start + min_dist_idx
-
-                    # H-step 軌跡（對應 chosen node 的整條 waypoints）
-                    horizon_waypoints = waypoints[min_dist_idx]  # shape [H, 2]
-
+                    
                     # Publish chosen waypoint
                     node.chosen_waypoint_pub.publish(Float32MultiArray(data=chosen_waypoint.tolist()))
-
+                
                 # 計算處理延遲
                 inference_end_time = time.time()
                 processing_delay = inference_end_time - inference_start_time
 
-            # Normalize and scale waypoint distances (model output → actual distances)
+                # Normalize and scale waypoint distances (model output → actual distances)
             if model_params["normalize"]:
                 # Scale XY waypoint distances
                 chosen_waypoint[0:2] *= MAX_V / RATE * WAYPOINT_XY_SCALE
@@ -1227,19 +868,20 @@ def main(args: argparse.Namespace):
 
             waypoint_msg = Float32MultiArray(data=chosen_waypoint.tolist())
             node.waypoint_pub.publish(waypoint_msg)
-
+            
             # 更新 current_waypoint 供 waypoint control loop 使用
             node.current_waypoint = chosen_waypoint
-
+            
             # 發布 current node
             current_node_msg = Int32()
             current_node_msg.data = int(closest_node)
             node.current_node_pub.publish(current_node_msg)
-
+            
             # 檢查是否到達目標 (考慮容忍度)
+            # 如果當前節點距離目標節點在容忍範圍內，則視為已到達
             goal_reached = bool(closest_node >= goal_node - REACH_TOLERANCE)
             node.reach_goal_pub.publish(Bool(data=goal_reached))
-
+            
             # 更新 reached_goal 狀態供 waypoint control loop 使用
             node.reached_goal = goal_reached
 
@@ -1247,92 +889,28 @@ def main(args: argparse.Namespace):
             start_node_msg = Int32()
             start_node_msg.data = int(start_node)
             node.start_node_pub.publish(start_node_msg)
-
+            
             end_node_msg = Int32()
             end_node_msg.data = int(goal_node)
             node.end_node_pub.publish(end_node_msg)
-
-            # 發佈 H-step waypoints 到 /vn/h_waypoints
-            if horizon_waypoints is not None and node.h_waypoints_pub is not None:
-                try:
-                    node.h_waypoints_pub.publish(
-                        Float32MultiArray(data=np.asarray(horizon_waypoints, dtype=np.float32).flatten().tolist())
-                    )
-                except Exception as e:
-                    print(f"[VIS] Failed to publish H-step waypoints: {e}")
-
-            # 視覺化（HUD + mini-map + mp4）：不影響原本導航邏輯
-            global latest_frame_bgr
-            if node.visualization_enabled and latest_frame_bgr is not None:
-                try:
-                    overlay = create_visualization_frame(
-                        latest_frame_bgr,
-                        horizon_waypoints,
-                        chosen_waypoint,
-                        closest_node,
-                        goal_node,
-                        processing_delay
-                    )
-                    if overlay is not None:
-                        # OpenCV 視窗（非阻塞）
-                        if node.vis_window_name:
-                            cv2.imshow(node.vis_window_name, overlay)
-                            key = cv2.waitKey(1) & 0xFF
-                            # 按下 q 或 ESC 可關閉視覺化視窗（但不影響導航）
-                            if key in (27, ord('q')):
-                                node.visualization_enabled = False
-                                cv2.destroyWindow(node.vis_window_name)
-                                print("[VIS] Visualization window closed by user.")
-
-                        # 發佈 overlay 到 ROS topic
-                        if node.overlay_pub is not None:
-                            overlay_msg = node.bridge.cv2_to_imgmsg(overlay, encoding="bgr8")
-                            overlay_msg.header.stamp = node.get_clock().now().to_msg()
-                            try:
-                                node.overlay_pub.publish(overlay_msg)
-                            except Exception as e:
-                                print(f"[VIS] Overlay publish failed: {e}")
-
-                        # 初始化 mp4 writer
-                        if node.video_writer is None:
-                            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                            ts = time.strftime("%Y%m%d_%H%M%S")
-                            out_dir = "/tmp"
-                            os.makedirs(out_dir, exist_ok=True)
-
-                            node.video_path = os.path.join(out_dir, f"vint_nav_{ts}.mp4")
-                            node.video_writer = cv2.VideoWriter(
-                                node.video_path,
-                                fourcc,
-                                float(RATE),  # 使用 robot.yaml 中設定 FPS
-                                (overlay.shape[1], overlay.shape[0]),
-                            )
-
-                            print(f"[VIS] Recording MP4 → {node.video_path}")
-
-
-                        # 寫入影格
-                        if node.video_writer is not None and node.video_writer.isOpened():
-                            node.video_writer.write(overlay)
-                except Exception as e:
-                    print(f"[VIS] Visualization error: {e}")
-
+            
             # 改善的輸出訊息格式
             if len(context_queue) > model_params["context_size"]:
+                # Format waypoint based on its dimensions
                 if len(chosen_waypoint) == 2:
                     waypoint_str = f"[{chosen_waypoint[0]:6.2f}, {chosen_waypoint[1]:6.2f}]"
                 else:
                     waypoint_str = f"[{chosen_waypoint[0]:6.2f}, {chosen_waypoint[1]:6.2f}, {chosen_waypoint[2]:6.2f}]"
-                print(f"[{args.model}] Node: {closest_node:03d}/{goal_node:03d} | "
-                      f"Waypoint: {waypoint_str} | Delay: {processing_delay:.3f}s")
+                print(f"[{args.model}] Node: {closest_node:03d}/{goal_node:03d} | Waypoint: {waypoint_str} | Delay: {processing_delay:.3f}s")
 
             if goal_reached:
                 print(f"\n[{args.model}] 🎯 GOAL REACHED! Navigation complete.")
+                # 設置 reached_goal 為 True，下一次循環會退出
                 reached_goal = True
 
             time.sleep(max(0, (1.0 / RATE) - (time.time() - loop_start_time)))
             rclpy.spin_once(node, timeout_sec=0)
-
+    
     except KeyboardInterrupt:
         print("\n⚠️  Keyboard interrupt in main loop")
     except Exception as e:
@@ -1340,29 +918,32 @@ def main(args: argparse.Namespace):
         import traceback
         traceback.print_exc()
     finally:
-        # Ensure robot is stopped & video released（真正清理在 cleanup_resources 中也會再做一次）
+        # Ensure robot is stopped
         print("\n[Cleanup] Stopping robot and cleaning up...")
         if node is not None:
+            node.publish_zero_velocity()
+            time.sleep(0.3)
+            node.publish_zero_velocity()  # Send twice
+            time.sleep(0.2)
+            
             try:
-                node.publish_zero_velocity()
-                time.sleep(0.3)
-                node.publish_zero_velocity()
-                time.sleep(0.2)
+                node.destroy_node()
+                print("[Cleanup] ✅ Node destroyed")
             except:
                 pass
-
-            try:
-                if hasattr(node, "video_writer") and node.video_writer is not None:
-                    node.video_writer.release()
-                    print("[Cleanup] ✅ Video writer released")
-            except:
-                pass
-
-        print("[Cleanup] ✅ All resources cleaned up (main finally)\n")
+        
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+                print("[Cleanup] ✅ ROS2 shutdown complete")
+        except:
+            pass
+        
+        print("[Cleanup] ✅ All resources cleaned up\n")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Code to run GNM/ViNT/NoMaD navigation on the Stretch robot")
+    parser = argparse.ArgumentParser(description="Code to run GNM DIFFUSION EXPLORATION on the locobot")
     parser.add_argument(
         "--model",
         "-m",

@@ -57,7 +57,7 @@ seed: 0
 model_type: vint
 obs_encoder: "efficientnet-b0" # by default, this is imagenet pretrained
 obs_encoding_size: 512
-use_pretrained: true           # Use ImageNet pretrained weights (highly recommended for small datasets)
+use_pretrained: false          # Set to false for inference (weights already in vint.pth)
 mha_num_attention_heads: 4
 mha_num_attention_layers: 4
 mha_ff_dim_factor: 4
